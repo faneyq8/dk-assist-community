@@ -141,6 +141,10 @@ local DEFAULT_GLOW_SETTINGS = {
     scale      = 1.0,
     border     = false,
     glowTiming = 5,
+    -- Glow on entering combat while the Festering Scythe buff is missing, after
+    -- combatGrace seconds. 0 grace shows it immediately.
+    combatGlow  = true,
+    combatGrace = 0,
 }
 
 local DEFAULT_PUTREFY_SETTINGS = {
@@ -259,6 +263,11 @@ function addon:CreateFesteringOverlays()
             end
         end
     end
+
+    -- The overlays the glow was running on have just been thrown away. A bar
+    -- rescan can happen at any time (dismounting fires one 0.5s later), so put
+    -- the glow back rather than letting it silently vanish mid-combat.
+    addon:RestoreFesteringGlow()
 end
 
 function addon:CreatePutrefyOverlays()
@@ -486,8 +495,16 @@ end
 function addon:CreateCDMOverlays() return StartSafeCDMScan(true) end
 function addon:CreateCDMOverlaysAdditive() return StartSafeCDMScan(false) end
 
+local FESTERING_BUFF_DURATION = 25
+
 local festeringTimer      = nil
+local festeringGraceTimer = nil
 local festeringGlowActive = false
+-- The glow means "you are missing the Festering Scythe buff". It is suppressed
+-- only for the fresh part of the buff: from the cast until glowTiming seconds
+-- remain. Suppression keeps running out of combat because the buff does too,
+-- but the glow itself is only ever rendered while in combat.
+local festeringSuppressed = false
 
 local function HideFesteringGlow()
     festeringGlowActive = false
@@ -503,11 +520,23 @@ local function HideFesteringGlow()
     for _, overlay in pairs(cdmFesteringOverlays) do hideOverlay(overlay) end
 end
 
+local function CancelFesteringGrace()
+    if festeringGraceTimer then
+        festeringGraceTimer:Cancel()
+        festeringGraceTimer = nil
+    end
+end
+
+-- Cancels the pending timers as well as the glow. Used when the tracking cycle
+-- should be abandoned entirely (spec change, test mode ending), not when the
+-- player merely drops combat.
 local function StopFesteringGlow()
     if festeringTimer then
         festeringTimer:Cancel()
         festeringTimer = nil
     end
+    CancelFesteringGrace()
+    festeringSuppressed = false
     HideFesteringGlow()
 end
 
@@ -535,25 +564,73 @@ local function ShowFesteringGlow()
 end
 
 local function StartFesteringTimer()
-    if festeringTimer then
-        festeringTimer:Cancel()
-        festeringTimer = nil
-    end
-    HideFesteringGlow()
+    StopFesteringGlow()
 
     local settings = DKAssistDB.spells.festeringScythe
     if not settings.enabled then return end
 
     local timing = settings.glowTiming or 5
-    local delay  = math.max(1, 25 - timing)
+    local delay  = math.max(1, FESTERING_BUFF_DURATION - timing)
+
+    festeringSuppressed = true
     festeringTimer = C_Timer.NewTimer(delay, function()
-        festeringTimer = nil
-        ShowFesteringGlow()
+        festeringTimer      = nil
+        festeringSuppressed = false
+        -- Only render while in combat; PLAYER_REGEN_DISABLED picks it up if the
+        -- player re-enters combat later.
+        if InCombatLockdown() then ShowFesteringGlow() end
     end)
 end
 
 function addon:OnFesteringScytheCast()
     StartFesteringTimer()
+end
+
+-- Leaving combat hides the glow but deliberately keeps festeringTimer running,
+-- because the Festering Scythe buff keeps ticking out of combat.
+local function OnFesteringCombatEnd()
+    CancelFesteringGrace()
+    HideFesteringGlow()
+end
+
+-- Entering combat without a fresh buff glows after combatGrace seconds, and
+-- only if the player has not cast Festering Scythe or dropped combat in the
+-- meantime. Entering combat with a fresh buff does nothing here; the
+-- suppression timer shows the expiry warning at the right moment instead, and
+-- that warning is never gated by these settings.
+local function OnFesteringCombatStart()
+    if festeringSuppressed then return end
+    CancelFesteringGrace()
+
+    local settings = DKAssistDB.spells.festeringScythe
+    if not settings.enabled then return end
+    if settings.combatGlow == false then return end
+
+    local grace = settings.combatGrace or 0
+    if grace <= 0 then
+        ShowFesteringGlow()
+        return
+    end
+
+    festeringGraceTimer = C_Timer.NewTimer(grace, function()
+        festeringGraceTimer = nil
+        if not festeringSuppressed and InCombatLockdown() then
+            ShowFesteringGlow()
+        end
+    end)
+end
+
+-- Called from the options panel when the combat-start glow is switched off, so
+-- a grace timer armed under the old setting cannot still fire.
+function addon:CancelFesteringCombatGlow()
+    CancelFesteringGrace()
+end
+
+-- Re-applies the glow to freshly built overlays after a bar rescan. Defined on
+-- addon rather than as a local because CreateFesteringOverlays sits above this
+-- section in the file; it only ever runs at runtime, so the lookup is safe.
+function addon:RestoreFesteringGlow()
+    if festeringGlowActive then ShowFesteringGlow() end
 end
 
 function addon:RefreshFesteringGlows()
@@ -961,6 +1038,7 @@ end
 local castFrame = CreateFrame("Frame")
 castFrame:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED")
 castFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
+castFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
 
 castFrame:SetScript("OnEvent", function(_, event, unit, _, spellID)
     if event == "UNIT_SPELLCAST_SUCCEEDED" then
@@ -975,8 +1053,11 @@ castFrame:SetScript("OnEvent", function(_, event, unit, _, spellID)
             addon:OnDeathAndDecayCast()
         end
     elseif event == "PLAYER_REGEN_ENABLED" then
-        addon:StopAll()
+        OnFesteringCombatEnd()
+        StopPutrefyWarning()
         addon:ShowPutrefyHoldWarning()
+    elseif event == "PLAYER_REGEN_DISABLED" then
+        OnFesteringCombatStart()
     end
 end)
 

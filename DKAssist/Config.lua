@@ -155,7 +155,7 @@ function addon:CreateConfigPanel(standalone)
     festeringDesc:SetPoint("TOPLEFT", enableCheck, "BOTTOMLEFT", 0, -6)
     festeringDesc:SetWidth(380)
     festeringDesc:SetJustifyH("LEFT")
-    festeringDesc:SetText("Glows your Festering Strike/Scythe button when the Festering Scythe buff is about to expire. Configure how many seconds before expiry the glow appears.")
+    festeringDesc:SetText("Glows your Festering Strike/Scythe button while the Festering Scythe buff is about to expire or already gone. Only glows in combat.")
     festeringDesc:SetTextColor(0.65, 0.65, 0.65)
 
     -- Glow style dropdown
@@ -168,7 +168,7 @@ function addon:CreateConfigPanel(standalone)
 
     -- Glow color
     local glowColorLabel = panel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    glowColorLabel:SetPoint("TOPLEFT", glowStyleLabel, "BOTTOMLEFT", 0, -30)
+    glowColorLabel:SetPoint("TOPLEFT", glowStyleLabel, "BOTTOMLEFT", 0, -22)
     glowColorLabel:SetText("Glow Color:")
 
     local glowSwatch = CreateFrame("Button", nil, panel)
@@ -211,7 +211,7 @@ function addon:CreateConfigPanel(standalone)
 
     -- Glow presets
     local glowPresetLabel = panel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    glowPresetLabel:SetPoint("TOPLEFT", glowColorLabel, "BOTTOMLEFT", 0, -20)
+    glowPresetLabel:SetPoint("TOPLEFT", glowColorLabel, "BOTTOMLEFT", 0, -16)
     glowPresetLabel:SetText("Presets:")
 
     local DK_PRESETS = {
@@ -244,17 +244,17 @@ function addon:CreateConfigPanel(standalone)
 
     -- Glow sliders
     local sliderContainer = CreateFrame("Frame", nil, panel)
-    sliderContainer:SetPoint("TOPLEFT", glowPresetLabel, "BOTTOMLEFT", 0, -24)
-    sliderContainer:SetSize(400, 250)
+    sliderContainer:SetPoint("TOPLEFT", glowPresetLabel, "BOTTOMLEFT", 0, -16)
+    sliderContainer:SetSize(400, 310)
 
     local glowSliders = {}
     local sliderSerial = 0
 
-    local function CreateSlider(parent, label, min, max, step, getter, setter, yOff)
+    local function CreateSlider(parent, label, min, max, step, getter, setter, yOff, xOff)
         sliderSerial = sliderSerial + 1
         local c = CreateFrame("Frame", nil, parent)
         c:SetSize(SLIDER_WIDTH + 80, 40)
-        c:SetPoint("TOPLEFT", parent, "TOPLEFT", 0, yOff)
+        c:SetPoint("TOPLEFT", parent, "TOPLEFT", xOff or 0, yOff)
 
         local lbl = c:CreateFontString(nil, "OVERLAY", "GameFontNormal")
         lbl:SetPoint("TOPLEFT", 0, 0)
@@ -293,18 +293,41 @@ function addon:CreateConfigPanel(standalone)
         function() return DKAssistDB.spells.festeringScythe.glowTiming end,
         function(v) DKAssistDB.spells.festeringScythe.glowTiming=v end, 0)
 
+    local combatGlowCheck = CreateFrame("CheckButton", nil, sliderContainer, "UICheckButtonTemplate")
+    combatGlowCheck:SetPoint("TOPLEFT", sliderContainer, "TOPLEFT", 0, -44)
+    combatGlowCheck.Text:SetText("Glow at combat start")
+    combatGlowCheck.Text:SetFontObject("GameFontNormal")
+    combatGlowCheck:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:SetText("Glow at combat start", 1, 1, 1)
+        GameTooltip:AddLine("Glow when you enter combat without the Festering Scythe buff, so you know to go get it.", 1, 0.82, 0, true)
+        GameTooltip:AddLine("The expiry warning is unaffected by this setting.", 0.7, 0.7, 0.7, true)
+        GameTooltip:Show()
+    end)
+    combatGlowCheck:SetScript("OnLeave", GameTooltip_Hide)
+
+    local gsGrace = CreateSlider(sliderContainer,"Combat start delay (sec)",0,20,1,
+        function() return DKAssistDB.spells.festeringScythe.combatGrace end,
+        function(v) DKAssistDB.spells.festeringScythe.combatGrace=v end, -74)
+
+    combatGlowCheck:SetScript("OnClick", function(self)
+        DKAssistDB.spells.festeringScythe.combatGlow = self:GetChecked()
+        if not self:GetChecked() then addon:CancelFesteringCombatGlow() end
+        UpdateSliderVisibility()
+    end)
+
     local gsSpeed = CreateSlider(sliderContainer,"Animation Speed",0.05,2.0,0.05,
         function() return DKAssistDB.spells.festeringScythe.speed end,
-        function(v) DKAssistDB.spells.festeringScythe.speed=v end, -50)
+        function(v) DKAssistDB.spells.festeringScythe.speed=v end, -120)
     local gsLines = CreateSlider(sliderContainer,"Lines / Particles",1,16,1,
         function() return DKAssistDB.spells.festeringScythe.lines end,
-        function(v) DKAssistDB.spells.festeringScythe.lines=v end, -100)
+        function(v) DKAssistDB.spells.festeringScythe.lines=v end, -170)
     local gsThick = CreateSlider(sliderContainer,"Thickness",1,8,1,
         function() return DKAssistDB.spells.festeringScythe.thickness end,
-        function(v) DKAssistDB.spells.festeringScythe.thickness=v end, -150)
+        function(v) DKAssistDB.spells.festeringScythe.thickness=v end, -220)
     local gsAlpha = CreateSlider(sliderContainer,"Opacity",0.1,1.0,0.05,
         function() return DKAssistDB.spells.festeringScythe.alpha end,
-        function(v) DKAssistDB.spells.festeringScythe.alpha=v end, -200)
+        function(v) DKAssistDB.spells.festeringScythe.alpha=v end, -270)
 
     glowSliders = {gsSpeed, gsLines, gsThick, gsAlpha}
 
@@ -322,8 +345,15 @@ function addon:CreateConfigPanel(standalone)
         for _, s in ipairs(glowSliders) do
             if vis[s] then s.container:Show() else s.container:Hide() end
         end
-        -- gsTiming is always visible regardless of glow type
+        -- gsTiming and the combat-start controls are always visible regardless
+        -- of glow type. The grace slider only matters when the glow is on.
         gsTiming.container:Show()
+        combatGlowCheck:Show()
+        if DKAssistDB.spells.festeringScythe.combatGlow == false then
+            gsGrace.container:Hide()
+        else
+            gsGrace.container:Show()
+        end
     end
 
     local cdmFesteringCheck = CreateFrame("CheckButton", nil, panel, "UICheckButtonTemplate")
@@ -644,7 +674,7 @@ function addon:CreateConfigPanel(standalone)
     rescanBtn:SetSize(120, 24)
     -- Keep action buttons beneath the configuration controls, including the
     -- Cooldown Manager checkbox on short Settings canvases.
-    rescanBtn:SetPoint("BOTTOMLEFT", panel, "BOTTOMLEFT", PADDING, 48)
+    rescanBtn:SetPoint("BOTTOMLEFT", panel, "BOTTOMLEFT", PADDING, 24)
     rescanBtn:SetText("Rescan Bars")
     rescanBtn:SetScript("OnClick", function()
         addon:ScanAllButtons()
@@ -932,6 +962,8 @@ function addon:CreateConfigPanel(standalone)
             InitGlowStyleDD()
             glowSwatch.color:SetColorTexture(gs.color.r, gs.color.g, gs.color.b, 1)
             gsTiming.refresh()
+            gsGrace.refresh()
+            combatGlowCheck:SetChecked(gs.combatGlow ~= false)
             for _, s in ipairs(glowSliders) do s.refresh() end
             cdmFesteringCheck:SetChecked(DKAssistDB.trackCDMFestering or false)
             ShowFesteringSection()
