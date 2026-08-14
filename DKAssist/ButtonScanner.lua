@@ -25,6 +25,12 @@ do
     for i = 1, 168 do
         BUTTON_NAMES[#BUTTON_NAMES+1] = "DominosActionButton" .. i
     end
+    -- EllesmereUIActionBars owns secure buttons named EABButton<slot> and
+    -- deliberately removes them from Blizzard's action-button event list.
+    -- Scan the named frames directly so normal action-bar tracking works.
+    for i = 1, 180 do
+        BUTTON_NAMES[#BUTTON_NAMES+1] = "EABButton" .. i
+    end
 end
 
 local spellTextureLookup = nil
@@ -61,6 +67,15 @@ local function GetButtonSpellID(button)
         actionSlot = button.action
     end
 
+    -- Secure third-party bars (including EllesmereUI) commonly store their
+    -- active slot in the standard action attribute instead of button.action.
+    if not actionSlot and button.GetAttribute then
+        local ok, action = pcall(button.GetAttribute, button, "action")
+        if ok and type(action) == "number" then
+            actionSlot = action
+        end
+    end
+
     if actionSlot then
         local success, aType, aId = pcall(GetActionInfo, actionSlot)
         if success and aType then
@@ -93,8 +108,7 @@ end
 
 local function ScanActionBars()
     local results = {}
-    for _, name in ipairs(BUTTON_NAMES) do
-        local button = _G[name]
+    local function CheckButton(button)
         if button and button.IsVisible and button:IsVisible() then
             local width, height = button:GetSize()
             if width and height and width > 1 and height > 1 then
@@ -114,6 +128,21 @@ local function ScanActionBars()
                     end
                 end
             end
+        end
+    end
+
+    for _, name in ipairs(BUTTON_NAMES) do
+        CheckButton(_G[name])
+    end
+
+    -- UI packs can move or rename Blizzard action buttons.  The Blizzard
+    -- action-button registry keeps the real button references, so scan it in
+    -- addition to the familiar global names above.
+    local registered = ActionBarButtonEventsFrame and ActionBarButtonEventsFrame.frames
+    if registered then
+        for key, value in pairs(registered) do
+            local button = type(key) == "table" and key or value
+            CheckButton(button)
         end
     end
     return results

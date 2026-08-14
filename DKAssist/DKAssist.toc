@@ -2,7 +2,7 @@
 ## Title: DK Assist
 ## Notes: Festering Scythe glow tracker and Putrefy warning for Unholy Death Knight
 ## Author: Zacho
-## Version: 1.3.5
+## Version: 1.4.0
 ## IconTexture: Interface\AddOns\DKAssist\Media\Icon.png
 ## AddonCompartmentFunc: DKAssist_AddonCompartmentClick
 ## AddonCompartmentFuncOnEnter: DKAssist_AddonCompartmentEnter
@@ -16,6 +16,7 @@ Libs/LibStub/LibStub.lua
 Libs/LibCustomGlow-1.0/LibCustomGlow-1.0.lua
 
 Core.lua
+RunicPower.lua
 ButtonScanner.lua
 Config.lua
 MinimapButton.lua

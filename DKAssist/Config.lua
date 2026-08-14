@@ -18,9 +18,13 @@ function addon:CreateConfigPanel(standalone)
     local DD_WIDTH      = 150
 
     -- -------------------------------------------------------
-    -- Which feature is being configured: "festering" | "putrefy"
+    -- Which feature is being configured.
     -- -------------------------------------------------------
     local selectedKey = "festering"
+    local function GetSelectedGlowSettings()
+        if selectedKey == "runic" then return DKAssistDB.runicPower end
+        return DKAssistDB.spells.festeringScythe
+    end
 
     -- Forward-declare so sub-sections can reference it
     local UpdateSliderVisibility
@@ -44,7 +48,7 @@ function addon:CreateConfigPanel(standalone)
     -- -------------------------------------------------------
     local previewContainer = CreateFrame("Frame", nil, panel, "BackdropTemplate")
     previewContainer:SetSize(120, 120)
-    previewContainer:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -PADDING - 40, -PADDING - 20)
+    previewContainer:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -PADDING - 40, -PADDING - 60)
     previewContainer:SetBackdrop({
         bgFile   = "Interface\\Buttons\\WHITE8X8",
         edgeFile = "Interface\\Buttons\\WHITE8X8",
@@ -66,6 +70,26 @@ function addon:CreateConfigPanel(standalone)
         edgeSize = 1,
     })
     previewFrame:SetBackdropBorderColor(0.2, 0.2, 0.2, 1)
+
+    -- Runic Power uses a real status bar in the preview instead of a spell icon.
+    local previewRunicBar = CreateFrame("StatusBar", nil, previewContainer, "BackdropTemplate")
+    previewRunicBar:SetSize(102, 18)
+    previewRunicBar:SetPoint("CENTER")
+    previewRunicBar:SetStatusBarTexture("Interface\\TargetingFrame\\UI-StatusBar")
+    previewRunicBar:SetStatusBarColor(0.0, 0.72, 1.0, 1)
+    previewRunicBar:SetMinMaxValues(0, 100)
+    previewRunicBar:SetValue(100)
+    previewRunicBar:SetBackdrop({
+        bgFile = "Interface\\Buttons\\WHITE8X8",
+        edgeFile = "Interface\\Buttons\\WHITE8X8",
+        edgeSize = 1,
+    })
+    previewRunicBar:SetBackdropColor(0, 0, 0, 1)
+    previewRunicBar:SetBackdropBorderColor(0.35, 0.35, 0.35, 1)
+    previewRunicBar.text = previewRunicBar:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    previewRunicBar.text:SetPoint("CENTER")
+    previewRunicBar.text:SetText("100 Runic Power")
+    previewRunicBar:Hide()
 
     -- Cross textures for Putrefy preview (hidden by default)
     local pCrossH = previewFrame:CreateTexture(nil, "OVERLAY")
@@ -106,7 +130,11 @@ function addon:CreateConfigPanel(standalone)
             iconID = addon.SPELLS.DEATH_AND_DECAY.icon
         elseif selectedKey == "soulreaper" then
             iconID = C_Spell.GetSpellTexture(addon.SPELLS.SOUL_REAPER.id)
+        elseif selectedKey == "runic" then
+            iconID = "Interface\\Icons\\Spell_DeathKnight_BloodPresence"
         end
+        previewFrame:SetShown(selectedKey ~= "runic")
+        previewRunicBar:SetShown(selectedKey == "runic")
         previewFrame:SetBackdrop({
             bgFile   = iconID or "Interface\\Icons\\Spell_DeathKnight_EmpowerRuneBlade2",
             edgeFile = "Interface\\Buttons\\WHITE8X8",
@@ -137,6 +165,9 @@ function addon:CreateConfigPanel(standalone)
         if selectedKey == "festering" then
             DKAssistDB.spells.festeringScythe.enabled = self:GetChecked()
             addon:RefreshFesteringGlows()
+        elseif selectedKey == "runic" then
+            DKAssistDB.runicPower.enabled = self:GetChecked()
+            addon:UpdateRunicPowerGlow()
         elseif selectedKey == "putrefy" then
             DKAssistDB.putrefy.enabled = self:GetChecked()
             addon:RefreshPutrefyWarnings()
@@ -187,7 +218,7 @@ function addon:CreateConfigPanel(standalone)
     glowColorHint:SetTextColor(0.55, 0.55, 0.55)
 
     glowSwatch:SetScript("OnClick", function()
-        local s = DKAssistDB.spells.festeringScythe
+        local s = GetSelectedGlowSettings()
         ColorPickerFrame:SetupColorPickerAndShow({
             r = s.color.r, g = s.color.g, b = s.color.b,
             hasOpacity = true, opacity = s.alpha,
@@ -195,16 +226,19 @@ function addon:CreateConfigPanel(standalone)
                 local r, g, b = ColorPickerFrame:GetColorRGB()
                 s.color.r = r ; s.color.g = g ; s.color.b = b
                 glowSwatch.color:SetColorTexture(r, g, b, 1)
+                if selectedKey == "runic" then addon:UpdateRunicPowerGlow() end
                 panel:UpdatePreview()
             end,
             opacityFunc = function()
                 s.alpha = ColorPickerFrame:GetColorAlpha()
+                if selectedKey == "runic" then addon:UpdateRunicPowerGlow() end
                 panel:UpdatePreview()
             end,
             cancelFunc = function(prev)
-                s.color.r = prev.r ; s.color.g = prev.g ; s.color.b = prev.b ; s.alpha = prev.a
-                glowSwatch.color:SetColorTexture(prev.r, prev.g, prev.b, 1)
-                panel:UpdatePreview()
+            s.color.r = prev.r ; s.color.g = prev.g ; s.color.b = prev.b ; s.alpha = prev.a
+            glowSwatch.color:SetColorTexture(prev.r, prev.g, prev.b, 1)
+            if selectedKey == "runic" then addon:UpdateRunicPowerGlow() end
+            panel:UpdatePreview()
             end,
         })
     end)
@@ -232,9 +266,10 @@ function addon:CreateConfigPanel(standalone)
         btn.color:SetPoint("TOPLEFT",2,-2) ; btn.color:SetPoint("BOTTOMRIGHT",-2,2)
         btn.color:SetColorTexture(p.r, p.g, p.b, 1)
         btn:SetScript("OnClick", function()
-            local s = DKAssistDB.spells.festeringScythe
+            local s = GetSelectedGlowSettings()
             s.color.r=p.r ; s.color.g=p.g ; s.color.b=p.b
             glowSwatch.color:SetColorTexture(p.r,p.g,p.b,1)
+            if selectedKey == "runic" then addon:UpdateRunicPowerGlow() end
             panel:UpdatePreview()
         end)
         btn:SetScript("OnEnter", function(self) GameTooltip:SetOwner(self,"ANCHOR_TOP") GameTooltip:SetText(p.name) GameTooltip:Show() end)
@@ -278,10 +313,21 @@ function addon:CreateConfigPanel(standalone)
             lbl:SetText(label..": "..string.format(fmt, v))
             eb:SetText(string.format(fmt, v))
         end
-        sl:SetScript("OnValueChanged", function(_, v) setter(v) Refresh() panel:UpdatePreview() end)
+        sl:SetScript("OnValueChanged", function(_, v)
+            setter(v)
+            Refresh()
+            if selectedKey == "runic" then addon:UpdateRunicPowerGlow() end
+            panel:UpdatePreview()
+        end)
         eb:SetScript("OnEnterPressed", function(self)
             local v = tonumber(self:GetText())
-            if v then v=math.max(min,math.min(max,v)) setter(v) Refresh() panel:UpdatePreview() end
+            if v then
+                v=math.max(min,math.min(max,v))
+                setter(v)
+                Refresh()
+                if selectedKey == "runic" then addon:UpdateRunicPowerGlow() end
+                panel:UpdatePreview()
+            end
             self:ClearFocus()
         end)
 
@@ -294,17 +340,21 @@ function addon:CreateConfigPanel(standalone)
         function(v) DKAssistDB.spells.festeringScythe.glowTiming=v end, 0)
 
     local gsSpeed = CreateSlider(sliderContainer,"Animation Speed",0.05,2.0,0.05,
-        function() return DKAssistDB.spells.festeringScythe.speed end,
-        function(v) DKAssistDB.spells.festeringScythe.speed=v end, -50)
+        function() return GetSelectedGlowSettings().speed end,
+        function(v) GetSelectedGlowSettings().speed=v end, -50)
     local gsLines = CreateSlider(sliderContainer,"Lines / Particles",1,16,1,
-        function() return DKAssistDB.spells.festeringScythe.lines end,
-        function(v) DKAssistDB.spells.festeringScythe.lines=v end, -100)
+        function() return GetSelectedGlowSettings().lines end,
+        function(v) GetSelectedGlowSettings().lines=v end, -100)
     local gsThick = CreateSlider(sliderContainer,"Thickness",1,8,1,
-        function() return DKAssistDB.spells.festeringScythe.thickness end,
-        function(v) DKAssistDB.spells.festeringScythe.thickness=v end, -150)
+        function() return GetSelectedGlowSettings().thickness end,
+        function(v) GetSelectedGlowSettings().thickness=v end, -150)
     local gsAlpha = CreateSlider(sliderContainer,"Opacity",0.1,1.0,0.05,
-        function() return DKAssistDB.spells.festeringScythe.alpha end,
-        function(v) DKAssistDB.spells.festeringScythe.alpha=v end, -200)
+        function() return GetSelectedGlowSettings().alpha end,
+        function(v) GetSelectedGlowSettings().alpha=v end, -200)
+
+    local rpThreshold = CreateSlider(sliderContainer,"Glow at Runic Power",50,100,1,
+        function() return DKAssistDB.runicPower.threshold end,
+        function(v) DKAssistDB.runicPower.threshold=v addon:UpdateRunicPowerGlow() end, 0)
 
     glowSliders = {gsSpeed, gsLines, gsThick, gsAlpha}
 
@@ -316,14 +366,30 @@ function addon:CreateConfigPanel(standalone)
     }
 
     UpdateSliderVisibility = function()
-        local gt = DKAssistDB.spells.festeringScythe.glowType or "pixel"
+        local gt = GetSelectedGlowSettings().glowType or "pixel"
         local vis = {}
         for _, s in ipairs(glowSliderSets[gt] or glowSliderSets.pixel) do vis[s]=true end
-        for _, s in ipairs(glowSliders) do
-            if vis[s] then s.container:Show() else s.container:Hide() end
+        local y = 0
+        local function PlaceSlider(s)
+            s.container:Show()
+            s.container:ClearAllPoints()
+            s.container:SetPoint("TOPLEFT", sliderContainer, "TOPLEFT", 0, y)
+            y = y - 50
         end
-        -- gsTiming is always visible regardless of glow type
-        gsTiming.container:Show()
+        if selectedKey == "festering" then
+            rpThreshold.container:Hide()
+            PlaceSlider(gsTiming)
+        elseif selectedKey == "runic" then
+            gsTiming.container:Hide()
+            PlaceSlider(rpThreshold)
+        else
+            gsTiming.container:Hide()
+            rpThreshold.container:Hide()
+        end
+        for _, s in ipairs(glowSliders) do
+            if vis[s] then PlaceSlider(s) else s.container:Hide() end
+        end
+        sliderContainer:SetHeight(math.max(40, -y))
     end
 
     local cdmFesteringCheck = CreateFrame("CheckButton", nil, panel, "UICheckButtonTemplate")
@@ -517,13 +583,21 @@ function addon:CreateConfigPanel(standalone)
 
     cdmPutrefyCheck:SetScript("OnClick", function(self)
         DKAssistDB.trackCDMPutrefy = self:GetChecked()
-        reloadBtnPutrefy:Show()
+        -- Switch targets immediately: CDM when checked, normal action bars
+        -- when unchecked.  Existing overlays are hidden before rescanning.
+        addon:StopAll()
+        addon:ScanAllButtons()
+        if DKAssistDB.trackCDMPutrefy then
+            addon:CreateCDMOverlays()
+        end
+        addon:ShowPutrefyHoldWarning()
+        reloadBtnPutrefy:Hide()
     end)
     cdmPutrefyCheck:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
         GameTooltip:SetText("Cooldown Manager", 1, 1, 1)
         GameTooltip:AddLine("Enable if Putrefy is visible in your Cooldown Manager.", 1, 0.82, 0, true)
-        GameTooltip:AddLine("Requires UI reload to take effect.", 1, 0.5, 0.5, true)
+        GameTooltip:AddLine("Switches immediately between Cooldown Manager and normal action bars.", 1, 0.5, 0.5, true)
         GameTooltip:Show()
     end)
     cdmPutrefyCheck:SetScript("OnLeave", GameTooltip_Hide)
@@ -657,6 +731,29 @@ function addon:CreateConfigPanel(standalone)
     testBtn:SetText("Test")
     local testActive = false
 
+    local minimapCheck = CreateFrame("CheckButton", nil, panel, "UICheckButtonTemplate")
+    minimapCheck:SetPoint("BOTTOM", previewLabel, "TOP", -80, 14)
+    minimapCheck.Text:SetText("Show Minimap Button")
+    minimapCheck.Text:SetFontObject("GameFontHighlightSmall")
+    if not StaticPopupDialogs.DKASSIST_RELOAD_MINIMAP then
+        StaticPopupDialogs.DKASSIST_RELOAD_MINIMAP = {
+            text = "Reload UI now to apply the Minimap Button change?",
+            button1 = "Reload UI",
+            button2 = CANCEL,
+            OnAccept = ReloadUI,
+            timeout = 0,
+            whileDead = true,
+            hideOnEscape = true,
+            preferredIndex = 3,
+        }
+    end
+    minimapCheck:SetScript("OnClick", function(self)
+        if addon.SetMinimapButtonShown then
+            addon:SetMinimapButtonShown(self:GetChecked())
+        end
+        StaticPopup_Show("DKASSIST_RELOAD_MINIMAP")
+    end)
+
     -- -------------------------------------------------------
     -- Show / hide DnD section
     -- -------------------------------------------------------
@@ -731,8 +828,8 @@ function addon:CreateConfigPanel(standalone)
         dndTestFrame:Hide()
         -- Reopen settings on the DnD page
         selectedKey = "dnd"
-        if addon.settingsCategory then
-            Settings.OpenToCategory(addon.settingsCategory:GetID())
+        if addon.OpenStandaloneSettings then
+            addon:OpenStandaloneSettings()
         end
     end
 
@@ -754,6 +851,8 @@ function addon:CreateConfigPanel(standalone)
                 addon:TestFesteringGlow()
             elseif selectedKey == "putrefy" then
                 addon:TestPutrefyWarning()
+            elseif selectedKey == "runic" then
+                addon:TestRunicPowerGlow()
             elseif selectedKey == "dnd" then
                 DKAssistDB.dnd.locked = false
                 dndLockCheck:SetChecked(false)
@@ -761,15 +860,13 @@ function addon:CreateConfigPanel(standalone)
                 dndTestLockCheck:SetChecked(false)
                 dndTestModeActive = true
                 dndTestFrame:Show()
-                if addon.settingsCategory then
-                    SettingsPanel:Hide()
-                end
             end
             testBtn:SetText("Stop Test")
         else
             dndTestModeActive = false
             addon:StopAll()
             addon:StopDnDTest()
+            addon:StopRunicPowerGlow()
             dndTestFrame:Hide()
             testBtn:SetText("Test")
         end
@@ -810,16 +907,19 @@ function addon:CreateConfigPanel(standalone)
             local items = {
                 {text = "Festering Scythe", value = "festering"},
                 {text = "Putrefy",          value = "putrefy"},
+                {text = "Runic Power",      value = "runic"},
                 {text = "Death and Decay",  value = "dnd"},
                 {text = "Soul Reaper",      value = "soulreaper"},
             }
             for _, item in ipairs(items) do
+                local itemText, itemValue = item.text, item.value
                 local info = UIDropDownMenu_CreateInfo()
-                info.text  = item.text
-                info.value = item.value
-                info.func  = function(self)
-                    selectedKey = self.value
-                    UIDropDownMenu_SetText(selectorDD, item.text)
+                info.text  = itemText
+                info.value = itemValue
+                info.checked = (selectedKey == itemValue)
+                info.func  = function()
+                    selectedKey = itemValue
+                    UIDropDownMenu_SetText(selectorDD, itemText)
                     UpdatePreviewIcon()
                     panel:RefreshControls()
                 end
@@ -828,6 +928,7 @@ function addon:CreateConfigPanel(standalone)
         end)
         local label = selectedKey == "festering" and "Festering Scythe"
                   or selectedKey == "putrefy" and "Putrefy"
+                  or selectedKey == "runic" and "Runic Power"
                   or selectedKey == "dnd" and "Death and Decay"
                   or selectedKey == "soulreaper" and "Soul Reaper"
                   or "Festering Scythe"
@@ -838,19 +939,23 @@ function addon:CreateConfigPanel(standalone)
         UIDropDownMenu_SetWidth(glowStyleDD, DD_WIDTH)
         UIDropDownMenu_Initialize(glowStyleDD, function()
             for _, gt in ipairs(addon.GLOW_TYPES) do
+                local glowID, glowName, glowDescription = gt.id, gt.name, gt.description
                 local info = UIDropDownMenu_CreateInfo()
-                info.text = gt.name ; info.value = gt.id
-                info.tooltipTitle = gt.name ; info.tooltipText = gt.description
-                info.func = function(self)
-                    DKAssistDB.spells.festeringScythe.glowType = self.value
-                    UIDropDownMenu_SetText(glowStyleDD, gt.name)
+                info.text = glowName ; info.value = glowID
+                info.checked = (GetSelectedGlowSettings().glowType == glowID)
+                info.tooltipTitle = glowName ; info.tooltipText = glowDescription
+                info.func = function()
+                    GetSelectedGlowSettings().glowType = glowID
+                    if selectedKey == "runic" then addon:UpdateRunicPowerGlow() end
+                    UIDropDownMenu_SetText(glowStyleDD, glowName)
+                    UIDropDownMenu_SetSelectedValue(glowStyleDD, glowID)
                     UpdateSliderVisibility()
                     panel:UpdatePreview()
                 end
                 UIDropDownMenu_AddButton(info)
             end
         end)
-        local cur = addon:GetGlowTypeByID(DKAssistDB.spells.festeringScythe.glowType)
+        local cur = addon:GetGlowTypeByID(GetSelectedGlowSettings().glowType)
         UIDropDownMenu_SetText(glowStyleDD, cur and cur.name or "Pixel Glow")
     end
 
@@ -858,12 +963,14 @@ function addon:CreateConfigPanel(standalone)
         UIDropDownMenu_SetWidth(warnStyleDD, DD_WIDTH)
         UIDropDownMenu_Initialize(warnStyleDD, function()
             for _, wt in ipairs(addon.PUTREFY_WARNING_TYPES) do
+                local warningID, warningName, warningDescription = wt.id, wt.name, wt.description
                 local info = UIDropDownMenu_CreateInfo()
-                info.text = wt.name ; info.value = wt.id
-                info.tooltipTitle = wt.name ; info.tooltipText = wt.description
-                info.func = function(self)
-                    DKAssistDB.putrefy.warningType = self.value
-                    UIDropDownMenu_SetText(warnStyleDD, wt.name)
+                info.text = warningName ; info.value = warningID
+                info.checked = (DKAssistDB.putrefy.warningType == warningID)
+                info.tooltipTitle = warningName ; info.tooltipText = warningDescription
+                info.func = function()
+                    DKAssistDB.putrefy.warningType = warningID
+                    UIDropDownMenu_SetText(warnStyleDD, warningName)
                     UpdatePutrefySubSections()
                     addon:RefreshPutrefyWarnings()
                 end
@@ -881,17 +988,30 @@ function addon:CreateConfigPanel(standalone)
         -- Stop everything on the preview frame
         for _, gt in ipairs(addon.GLOW_TYPES) do
             if gt.stop then pcall(gt.stop, previewFrame) end
+            if gt.stop then pcall(gt.stop, previewRunicBar) end
         end
         if LCG and LCG.PixelGlow_Stop then
             pcall(LCG.PixelGlow_Stop, previewFrame, "DKAssistPreview")
+            pcall(LCG.PixelGlow_Stop, previewRunicBar, "DKAssistPreview")
         end
+        addon:StopRunicBarGlowFor(previewRunicBar)
         HidePreviewCross()
 
         if selectedKey == "festering" then
-            local s = DKAssistDB.spells.festeringScythe
+            local s = GetSelectedGlowSettings()
             if s.enabled then
                 local gt = addon:GetGlowTypeByID(s.glowType)
                 if gt and gt.start then gt.start(previewFrame, s) end
+            end
+        elseif selectedKey == "runic" then
+            local s = GetSelectedGlowSettings()
+            if s.enabled then
+                local gt = addon:GetGlowTypeByID(s.glowType)
+                if s.glowType == "pixel" or s.glowType == "button" then
+                    addon:StartRunicBarGlow(previewRunicBar, s)
+                elseif gt and gt.start then
+                    gt.start(previewRunicBar, s)
+                end
             end
         elseif selectedKey == "putrefy" then
             local s = DKAssistDB.putrefy
@@ -918,8 +1038,10 @@ function addon:CreateConfigPanel(standalone)
         local gs = DKAssistDB.spells.festeringScythe
         local ps = DKAssistDB.putrefy
         local ds = DKAssistDB.dnd
+        local rs = DKAssistDB.runicPower
 
         InitSelectorDD()
+        minimapCheck:SetChecked(not DKAssistDB.minimapHidden)
         testActive = false ; testBtn:SetText("Test")
         dndTestModeActive = false
         dndTestFrame:Hide()
@@ -934,7 +1056,19 @@ function addon:CreateConfigPanel(standalone)
             gsTiming.refresh()
             for _, s in ipairs(glowSliders) do s.refresh() end
             cdmFesteringCheck:SetChecked(DKAssistDB.trackCDMFestering or false)
+            festeringDesc:SetText("Glows your Festering Strike/Scythe button when the Festering Scythe buff is about to expire. Configure how many seconds before expiry the glow appears.")
             ShowFesteringSection()
+        elseif selectedKey == "runic" then
+            enableCheck.Text:SetText("Enable Runic Power glow")
+            enableCheck:SetChecked(rs.enabled)
+            enableCheck:Show()
+            festeringDesc:SetText("Glows your Runic Power bar when it reaches the selected cap threshold, helping you avoid overcapping.")
+            InitGlowStyleDD()
+            glowSwatch.color:SetColorTexture(rs.color.r, rs.color.g, rs.color.b, 1)
+            rpThreshold.refresh()
+            for _, s in ipairs(glowSliders) do s.refresh() end
+            ShowFesteringSection()
+            cdmFesteringCheck:Hide()
         elseif selectedKey == "putrefy" then
             enableCheck.Text:SetText("Enable warning")
             enableCheck:SetChecked(ps.enabled)
@@ -970,7 +1104,7 @@ function addon:CreateConfigPanel(standalone)
     -- -------------------------------------------------------
     panel:SetScript("OnShow", function(self)
         -- Keep selectedKey if returning from DnD test mode, otherwise default to festering
-        if selectedKey ~= "dnd" and selectedKey ~= "putrefy" and selectedKey ~= "soulreaper" then
+        if selectedKey ~= "dnd" and selectedKey ~= "putrefy" and selectedKey ~= "soulreaper" and selectedKey ~= "runic" then
             selectedKey = "festering"
         end
         self:RefreshControls()
@@ -983,6 +1117,7 @@ function addon:CreateConfigPanel(standalone)
         if LCG and LCG.PixelGlow_Stop then
             pcall(LCG.PixelGlow_Stop, previewFrame, "DKAssistPreview")
         end
+        addon:StopRunicPowerGlow()
         HidePreviewCross()
         -- Don't kill DnD test if we're in positioning mode (settings was minimized on purpose)
         if not dndTestModeActive then

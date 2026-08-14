@@ -1,13 +1,10 @@
 local addonName, addon = ...
 
 local ICON_TEXTURE = "Interface\\AddOns\\DKAssist\\Media\\Icon.png"
-local BUTTON_RADIUS = 88
 
 local function OpenSettings()
     if addon.OpenStandaloneSettings then
         addon:OpenStandaloneSettings()
-    elseif addon.settingsCategory then
-        Settings.OpenToCategory(addon.settingsCategory:GetID())
     end
 end
 
@@ -52,21 +49,24 @@ function DKAssist_AddonCompartmentLeave()
 end
 
 local function UpdatePosition(button)
-    -- Start below the minimap. This also gives minimap-button bars a stable
-    -- initial point instead of sorting DK Assist into their upper row.
-    local angle = DKAssistDB.minimapAngle or 270
+    -- Match the normal minimap-button behaviour: sit on the ring and scale
+    -- correctly with custom minimap sizes (such as EllesmereUI/HCAA layouts).
+    local angle = DKAssistDB.minimapAngle or 225
     local radians = math.rad(angle)
+    local radius = ((Minimap:GetWidth() or 140) / 2) + 8
     button:ClearAllPoints()
-    button:SetPoint("CENTER", Minimap, "CENTER", math.cos(radians) * BUTTON_RADIUS, math.sin(radians) * BUTTON_RADIUS)
+    button:SetPoint("CENTER", Minimap, "CENTER", math.cos(radians) * radius, math.sin(radians) * radius)
 end
 
 function addon:CreateMinimapButton()
     RegisterDataBrokerLauncher()
-    -- Keep a direct minimap icon as well as the HidingBar/DataBroker entry.
-    DKAssistDB.minimapHidden = false
+    if not DKAssistDB.minimapStyleVersion then
+        DKAssistDB.minimapAngle = 225
+        DKAssistDB.minimapStyleVersion = 1
+    end
     if self.minimapButton then
         UpdatePosition(self.minimapButton)
-        self.minimapButton:Show()
+        if DKAssistDB.minimapHidden then self.minimapButton:Hide() else self.minimapButton:Show() end
         return
     end
 
@@ -76,41 +76,38 @@ function addon:CreateMinimapButton()
     button:SetFrameLevel(Minimap:GetFrameLevel() + 10)
     button:RegisterForClicks("LeftButtonUp", "RightButtonUp")
     button:RegisterForDrag("LeftButton")
-    -- A real NormalTexture makes the icon recognizable to HidingBar and
-    -- other minimap-button collectors, not just visible on the minimap.
-    button:SetNormalTexture(ICON_TEXTURE)
-    local normal = button:GetNormalTexture()
-    normal:SetSize(23, 23)
-    normal:SetPoint("CENTER", 0, 1)
-    normal:SetTexCoord(0.07, 0.93, 0.07, 0.93)
-    normal:SetVertexColor(1, 1, 1, 1)
-
-    local icon = button:CreateTexture(nil, "ARTWORK")
+    local icon = button:CreateTexture(nil, "BACKGROUND")
     icon:SetTexture(ICON_TEXTURE)
-    icon:SetSize(23, 23)
-    icon:SetPoint("CENTER", 0, 1)
+    icon:SetSize(22, 22)
+    icon:SetPoint("CENTER")
     icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
     button.icon = icon
 
     local border = button:CreateTexture(nil, "OVERLAY")
     border:SetTexture("Interface\\Minimap\\MiniMap-TrackingBorder")
-    border:SetSize(52, 52)
-    border:SetPoint("CENTER", 10, -11)
+    border:SetSize(54, 54)
+    border:SetPoint("TOPLEFT", button, "TOPLEFT", 0, 0)
 
     button:SetScript("OnClick", function(_, mouseButton)
-        if mouseButton == "LeftButton" then OpenSettings() end
+        if mouseButton == "LeftButton" then
+            OpenSettings()
+        elseif mouseButton == "RightButton" then
+            DKAssistDB.minimapHidden = true
+            button:Hide()
+        end
     end)
     button:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_LEFT")
         GameTooltip:SetText("DK Assist")
         GameTooltip:AddLine("Left-click: Open settings", 0.8, 0.8, 0.8)
+        GameTooltip:AddLine("Right-click: Hide minimap button", 0.8, 0.8, 0.8)
         GameTooltip:AddLine("Drag: Move button", 0.8, 0.8, 0.8)
         GameTooltip:Show()
     end)
     button:SetScript("OnLeave", GameTooltip_Hide)
     button:SetScript("OnDragStart", function(self) self:SetScript("OnUpdate", function(self)
         local x, y = GetCursorPosition()
-        local scale = UIParent:GetEffectiveScale()
+        local scale = Minimap:GetEffectiveScale()
         x, y = x / scale, y / scale
         local mx, my = Minimap:GetCenter()
         DKAssistDB.minimapAngle = math.deg(math.atan2(y - my, x - mx))
@@ -120,12 +117,21 @@ function addon:CreateMinimapButton()
 
     self.minimapButton = button
     UpdatePosition(button)
-    button:Show()
+    if DKAssistDB.minimapHidden then button:Hide() else button:Show() end
     -- EllesmereUI finishes its minimap-button layout shortly after login.
     -- Reapply the preferred below-minimap point once that layout has settled.
     C_Timer.After(2, function()
         if button:GetParent() == Minimap then UpdatePosition(button) end
     end)
+end
+
+function addon:SetMinimapButtonShown(show)
+    DKAssistDB.minimapHidden = not show
+    if show then
+        self:CreateMinimapButton()
+    elseif self.minimapButton then
+        self.minimapButton:Hide()
+    end
 end
 
 local initFrame = CreateFrame("Frame")

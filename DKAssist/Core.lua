@@ -160,6 +160,17 @@ addon.DEFAULT_DB = {
     seenWelcome       = false,
     trackCDMFestering = false,
     trackCDMPutrefy   = false,
+    runicPowerWarning = true,
+    runicPower = {
+        enabled = true,
+        glowType = "pixel",
+        color = {r = 0.0, g = 0.72, b = 1.0},
+        alpha = 1.0,
+        speed = 0.25,
+        lines = 8,
+        thickness = 2,
+        threshold = 85,
+    },
     spells = {
         festeringScythe = CopyTable(DEFAULT_GLOW_SETTINGS),
     },
@@ -188,9 +199,12 @@ local putrefyWarningActive = false
 
 local function CreateOverlay(targetFrame, spellKey)
     local overlay = CreateFrame("Frame", nil, targetFrame)
-    overlay:SetFrameStrata("HIGH")
+    -- Keep the overlay in the target button's draw layer.  A fixed HIGH
+    -- strata lets the cross paint over maps, dialogs, and other addons even
+    -- though the button itself is behind those windows.
+    overlay:SetFrameStrata(targetFrame:GetFrameStrata())
     overlay:SetAllPoints(targetFrame)
-    overlay:SetFrameLevel(targetFrame:GetFrameLevel() + 10)
+    overlay:SetFrameLevel(targetFrame:GetFrameLevel() + 1)
     overlay._targetFrame = targetFrame
     overlay._spellKey    = spellKey
     overlay._glowActive  = false
@@ -268,6 +282,12 @@ function addon:CreatePutrefyOverlays()
         overlay:SetParent(nil)
     end
     wipe(putrefyOverlays)
+
+    -- When Cooldown Manager tracking is enabled, Putrefy is intentionally a
+    -- CDM-only indicator.  Do not also attach a cross to normal action-bar
+    -- buttons; those buttons can sit behind unrelated UI windows and make
+    -- the warning look like it belongs to another addon.
+    if DKAssistDB.trackCDMPutrefy then return end
 
     for spellKey, buttons in pairs(addon.trackedButtons or {}) do
         if spellKey == "putrefy" then
@@ -516,9 +536,12 @@ local function ShowFesteringGlow()
     local settings = DKAssistDB.spells.festeringScythe
     if not settings.enabled then return end
 
-    local function applyGlow(overlay, skipVisCheck)
+    local function applyGlow(overlay)
         local target = overlay._targetFrame
-        if target and (skipVisCheck or target:IsVisible()) then
+        -- Never show an overlay for a hidden/recycled UI frame.  In 12.1 the
+        -- Cooldown Manager can keep its item frames alive while another full
+        -- screen UI (such as the world map) is open.
+        if target and target:IsVisible() then
             overlay:Show()
             if not overlay._glowActive then
                 local gt = addon:GetGlowTypeByID(settings.glowType)
@@ -530,8 +553,8 @@ local function ShowFesteringGlow()
         end
     end
 
-    for _, overlay in pairs(festeringOverlays)    do applyGlow(overlay, false) end
-    for _, overlay in pairs(cdmFesteringOverlays) do applyGlow(overlay, true)  end
+    for _, overlay in pairs(festeringOverlays)    do applyGlow(overlay) end
+    for _, overlay in pairs(cdmFesteringOverlays) do applyGlow(overlay) end
 end
 
 local function StartFesteringTimer()
@@ -610,9 +633,12 @@ local function ShowPutrefyWarning(duration)
     local settings = DKAssistDB.putrefy
     if not settings.enabled then return end
 
-    local function applyWarning(overlay, skipVisCheck)
+    local function applyWarning(overlay)
         local target = overlay._targetFrame
-        if target and (skipVisCheck or target:IsVisible()) then
+        -- CDM frames are reused by Blizzard UI.  Do not force an overlay to
+        -- show when its target is hidden; that can leave the red cross over
+        -- unrelated full-screen frames such as the world map.
+        if target and target:IsVisible() then
             overlay:Show()
             if settings.warningType == "cross" then
                 UpdateCrossAppearance(overlay)
@@ -633,8 +659,11 @@ local function ShowPutrefyWarning(duration)
         end
     end
 
-    for _, overlay in pairs(putrefyOverlays)    do applyWarning(overlay, false) end
-    for _, overlay in pairs(cdmPutrefyOverlays) do applyWarning(overlay, true)  end
+    if not DKAssistDB.trackCDMPutrefy then
+        for _, overlay in pairs(putrefyOverlays) do applyWarning(overlay) end
+    else
+        for _, overlay in pairs(cdmPutrefyOverlays) do applyWarning(overlay) end
+    end
 
     if duration then
         putrefyDurationTimer = C_Timer.NewTimer(math.max(0.1, duration), function()
@@ -1020,8 +1049,8 @@ function addon:ShowWelcomePopup()
     settingsBtn:SetScript("OnClick", function()
         DKAssistDB.seenWelcome = true
         popup:Hide()
-        if addon.settingsCategory then
-            Settings.OpenToCategory(addon.settingsCategory:GetID())
+        if addon.OpenStandaloneSettings then
+            addon:OpenStandaloneSettings()
         end
     end)
 
@@ -1073,6 +1102,15 @@ initFrame:SetScript("OnEvent", function(_, event)
         end
         if DKAssistDB.trackCDMFestering == nil then DKAssistDB.trackCDMFestering = false end
         if DKAssistDB.trackCDMPutrefy   == nil then DKAssistDB.trackCDMPutrefy   = false end
+        if DKAssistDB.runicPowerWarning == nil then DKAssistDB.runicPowerWarning = true end
+        if not DKAssistDB.runicPower then
+            DKAssistDB.runicPower = CopyTable(addon.DEFAULT_DB.runicPower)
+            DKAssistDB.runicPower.enabled = DKAssistDB.runicPowerWarning
+        else
+            for k, v in pairs(addon.DEFAULT_DB.runicPower) do
+                if DKAssistDB.runicPower[k] == nil then DKAssistDB.runicPower[k] = v end
+            end
+        end
 
         -- Death and Decay tracker defaults
         if not DKAssistDB.dnd then
@@ -1135,7 +1173,6 @@ initFrame:SetScript("OnEvent", function(_, event)
             addon.standaloneSettingsWindow = window
             addon.standaloneSettingsPanel = standalonePanel
             function addon:OpenStandaloneSettings()
-                if SettingsPanel and SettingsPanel:IsShown() then SettingsPanel:Hide() end
                 window:Show()
                 standalonePanel:Show()
                 standalonePanel:RefreshControls()
@@ -1183,8 +1220,8 @@ SlashCmdList["DKASSIST"] = function(msg)
             end
         end
     else
-        if addon.settingsCategory then
-            Settings.OpenToCategory(addon.settingsCategory:GetID())
+        if addon.OpenStandaloneSettings then
+            addon:OpenStandaloneSettings()
         else
             print("|cffcc0000DK Assist:|r /dka scan - Rescan action bars")
             print("|cffcc0000DK Assist:|r /dka cdmscan - Rescan Cooldown Manager")
