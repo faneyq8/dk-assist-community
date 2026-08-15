@@ -6,9 +6,21 @@ local addonName, addon = ...
 local LCG = LibStub("LibCustomGlow-1.0")
 
 function addon:CreateConfigPanel(standalone)
-    local panel = CreateFrame("Frame")
+    local panel = CreateFrame("Frame", nil, nil, "BackdropTemplate")
     panel.name = "DK Assist"
     local framePrefix = standalone and "DKAssistStandalone" or "DKAssist"
+
+    -- The standalone window needs its own solid canvas.  The parent window's
+    -- backdrop is not sufficient with some UI replacements, which otherwise
+    -- lets the game world show through the settings content.
+    if standalone then
+        panel:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8X8" })
+        panel:SetBackdropColor(0.008, 0.008, 0.014, 1)
+        local panelPattern = panel:CreateTexture(nil, "BACKGROUND", nil, -7)
+        panelPattern:SetAllPoints()
+        panelPattern:SetTexture("Interface\\DialogFrame\\UI-DialogBox-Background-Dark")
+        panelPattern:SetVertexColor(0.13, 0.13, 0.18, 0.32)
+    end
 
     -- -------------------------------------------------------
     -- Layout constants
@@ -49,14 +61,18 @@ function addon:CreateConfigPanel(standalone)
     -- Live Preview (top-right, same as DC Glows)
     -- -------------------------------------------------------
     local previewContainer = CreateFrame("Frame", nil, panel, "BackdropTemplate")
-    previewContainer:SetSize(120, 120)
-    previewContainer:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -PADDING - 40, -PADDING - 60)
+    -- Blizzard's AddOns host is narrower than the standalone DK Assist
+    -- window.  Keep the same card grid, scaled to the host width.
+    local hostLeftWidth = standalone and 356 or 300
+    local hostRightWidth = standalone and 388 or 300
+    previewContainer:SetSize(hostRightWidth, 220)
+    previewContainer:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -14, -70)
     previewContainer:SetBackdrop({
         bgFile   = "Interface\\Buttons\\WHITE8X8",
         edgeFile = "Interface\\Buttons\\WHITE8X8",
         edgeSize = 1,
     })
-    previewContainer:SetBackdropColor(0.1, 0.1, 0.1, 0.8)
+    previewContainer:SetBackdropColor(0.055, 0.055, 0.065, 0.98)
     previewContainer:SetBackdropBorderColor(0.3, 0.3, 0.3, 1)
 
     local previewLabel = panel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
@@ -64,7 +80,7 @@ function addon:CreateConfigPanel(standalone)
     previewLabel:SetText("Live Preview")
 
     previewFrame = CreateFrame("Frame", framePrefix .. "PreviewButton", previewContainer, "BackdropTemplate")
-    previewFrame:SetSize(64, 64)
+    previewFrame:SetSize(96, 96)
     previewFrame:SetPoint("CENTER")
     previewFrame:SetBackdrop({
         bgFile   = "Interface\\Icons\\Spell_DeathKnight_EmpowerRuneBlade2",
@@ -75,7 +91,7 @@ function addon:CreateConfigPanel(standalone)
 
     -- Runic Power uses a real status bar in the preview instead of a spell icon.
     local previewRunicBar = CreateFrame("StatusBar", nil, previewContainer, "BackdropTemplate")
-    previewRunicBar:SetSize(102, 18)
+    previewRunicBar:SetSize(170, 22)
     previewRunicBar:SetPoint("CENTER")
     previewRunicBar:SetStatusBarTexture("Interface\\TargetingFrame\\UI-StatusBar")
     previewRunicBar:SetStatusBarColor(0.0, 0.72, 1.0, 1)
@@ -113,11 +129,11 @@ function addon:CreateConfigPanel(standalone)
         pCrossH:ClearAllPoints()
         pCrossH:SetPoint("LEFT",  previewFrame, "LEFT",  0, 0)
         pCrossH:SetPoint("RIGHT", previewFrame, "RIGHT", 0, 0)
-        pCrossH:SetHeight(math.max(2, 64 * th))
+        pCrossH:SetHeight(math.max(2, 96 * th))
         pCrossV:ClearAllPoints()
         pCrossV:SetPoint("TOP",    previewFrame, "TOP",    0, 0)
         pCrossV:SetPoint("BOTTOM", previewFrame, "BOTTOM", 0, 0)
-        pCrossV:SetWidth(math.max(2, 64 * th))
+        pCrossV:SetWidth(math.max(2, 96 * th))
         pCrossH:Show() pCrossV:Show()
     end
 
@@ -289,10 +305,69 @@ function addon:CreateConfigPanel(standalone)
         table.insert(glowPresetBtns, btn)
     end
 
+    -- Visual group frames sit behind normal Blizzard controls and make the
+    -- two-column layout readable without changing control behavior.
+    local function CreateSectionFrame()
+        local section = CreateFrame("Frame", nil, panel, "BackdropTemplate")
+        section:SetBackdrop({
+            bgFile = "Interface\\Buttons\\WHITE8X8",
+            edgeFile = "Interface\\Buttons\\WHITE8X8",
+            edgeSize = 1,
+        })
+        section:SetBackdropColor(0.018, 0.018, 0.024, 0.96)
+        section:SetBackdropBorderColor(0.28, 0.28, 0.28, 1)
+        section:SetFrameLevel(panel:GetFrameLevel())
+        return section
+    end
+
+    -- A small gold divider on both sides makes section headings read like
+    -- the framed WoW UI treatment, without needing additional artwork.
+    local function CreateOrnamentTitle(owner, text)
+        local title = owner:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        title:SetText(text)
+        local left = owner:CreateTexture(nil, "OVERLAY")
+        left:SetTexture("Interface\\Buttons\\WHITE8X8")
+        left:SetSize(66, 1)
+        left:SetVertexColor(0.75, 0.62, 0.10, 0.75)
+        local right = owner:CreateTexture(nil, "OVERLAY")
+        right:SetTexture("Interface\\Buttons\\WHITE8X8")
+        right:SetSize(66, 1)
+        right:SetVertexColor(0.75, 0.62, 0.10, 0.75)
+        left:SetPoint("RIGHT", title, "LEFT", -7, 0)
+        right:SetPoint("LEFT", title, "RIGHT", 7, 0)
+        return title
+    end
+
+    local styleSection = CreateSectionFrame()
+    styleSection:SetPoint("TOPLEFT", selectorLabel, "TOPLEFT", -12, 20)
+    styleSection:SetPoint("BOTTOMRIGHT", glowPresetBtns[#glowPresetBtns], "BOTTOMRIGHT", 14, -14)
+    local styleSectionTitle = CreateOrnamentTitle(styleSection, "Glow settings")
+    styleSectionTitle:SetPoint("TOP", styleSection, "TOP", 0, -10)
+
     -- Glow sliders
     local sliderContainer = CreateFrame("Frame", nil, panel)
     sliderContainer:SetPoint("TOPLEFT", glowPresetLabel, "BOTTOMLEFT", 0, -24)
     sliderContainer:SetSize(400, 250)
+
+    -- A dedicated right column keeps style-specific sliders away from the
+    -- Festering warnings. Pixel Glow has four sliders and cannot share the
+    -- left column without colliding with the target selector/footer.
+    local appearanceContainer = CreateFrame("Frame", nil, panel)
+    appearanceContainer:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -32, -375)
+    appearanceContainer:SetSize(290, 260)
+    local appearanceHeader = CreateOrnamentTitle(appearanceContainer, "Pixel Glow appearance")
+    appearanceHeader:SetPoint("TOP", appearanceContainer, "TOP", 0, 0)
+    local appearanceSection = CreateSectionFrame()
+    appearanceSection:SetPoint("TOPLEFT", appearanceContainer, "TOPLEFT", -12, 18)
+    appearanceSection:SetSize(314, 266)
+
+    local warningSection = CreateSectionFrame()
+    warningSection:SetPoint("TOPLEFT", sliderContainer, "TOPLEFT", -12, 18)
+    warningSection:SetSize(405, 168)
+    local ghoulSection = CreateSectionFrame()
+    ghoulSection:SetSize(405, 68)
+    local warningTimingHeader = CreateOrnamentTitle(warningSection, "Warning timing")
+    local ghoulReminderHeader = CreateOrnamentTitle(ghoulSection, "Lesser Ghoul reminder")
 
     local glowSliders = {}
     local sliderSerial = 0
@@ -378,8 +453,6 @@ function addon:CreateConfigPanel(standalone)
     ghoulGlowCheck.Text:SetFontObject("GameFontNormal")
     ghoulGlowCheck:SetScript("OnClick", function(self)
         DKAssistDB.spells.festeringScythe.lesserGhoulGlow = self:GetChecked()
-        -- Pick up the Cooldown Manager buff icon straight away, so the setting
-        -- takes effect without a reload.
         if self:GetChecked() and addon.RefreshCDMTrackedItems then
             addon:RefreshCDMTrackedItems()
         end
@@ -392,24 +465,22 @@ function addon:CreateConfigPanel(standalone)
     end)
     ghoulGlowCheck:SetScript("OnLeave", GameTooltip_Hide)
 
-    -- The buff state is read from the Cooldown Manager's icon, so the setting
-    -- does nothing on its own if Lesser Ghoul is not tracked there.
     local ghoulHint = sliderContainer:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    ghoulHint:SetWidth(370)
+    ghoulHint:SetWidth(hostLeftWidth - 32)
     ghoulHint:SetJustifyH("LEFT")
-    ghoulHint:SetText("Requires Lesser Ghoul to be tracked in the Cooldown Manager, under either Tracked Buffs or Tracked Bars.")
+    ghoulHint:SetText("Requires Lesser Ghoul in the Cooldown Manager.")
     ghoulHint:SetTextColor(0.65, 0.65, 0.65)
 
-    local gsSpeed = CreateSlider(sliderContainer,"Animation Speed",0.05,2.0,0.05,
+    local gsSpeed = CreateSlider(appearanceContainer,"Animation Speed",0.05,2.0,0.05,
         function() return GetSelectedGlowSettings().speed end,
         function(v) GetSelectedGlowSettings().speed=v end, -50)
-    local gsLines = CreateSlider(sliderContainer,"Lines / Particles",1,16,1,
+    local gsLines = CreateSlider(appearanceContainer,"Lines / Particles",1,16,1,
         function() return GetSelectedGlowSettings().lines end,
         function(v) GetSelectedGlowSettings().lines=v end, -100)
-    local gsThick = CreateSlider(sliderContainer,"Thickness",1,8,1,
+    local gsThick = CreateSlider(appearanceContainer,"Thickness",1,8,1,
         function() return GetSelectedGlowSettings().thickness end,
         function(v) GetSelectedGlowSettings().thickness=v end, -150)
-    local gsAlpha = CreateSlider(sliderContainer,"Opacity",0.1,1.0,0.05,
+    local gsAlpha = CreateSlider(appearanceContainer,"Opacity",0.1,1.0,0.05,
         function() return GetSelectedGlowSettings().alpha end,
         function(v) GetSelectedGlowSettings().alpha=v end, -200)
 
@@ -435,30 +506,57 @@ function addon:CreateConfigPanel(standalone)
             s.container:Show()
             s.container:ClearAllPoints()
             s.container:SetPoint("TOPLEFT", sliderContainer, "TOPLEFT", 0, y)
-            y = y - 50
+            y = y - (selectedKey == "festering" and 44 or 50)
+        end
+        local appearanceY = -30
+        local function PlaceAppearanceSlider(s)
+            s.container:Show()
+            s.container:ClearAllPoints()
+            s.container:SetPoint("TOPLEFT", appearanceContainer, "TOPLEFT", 0, appearanceY)
+            appearanceY = appearanceY - 50
         end
         if selectedKey == "festering" then
             rpThreshold.container:Hide()
+            warningSection:Show()
+            ghoulSection:Show()
+            warningTimingHeader:SetText("Warning timing")
+            warningTimingHeader:Show()
+            warningTimingHeader:ClearAllPoints()
+            warningTimingHeader:SetPoint("TOP", warningSection, "TOP", 0, -13)
+            -- Keep the controls close to the section heading; the previous
+            -- offsets left an unnecessary empty band in the warning card.
+            y = -16
             PlaceSlider(gsTiming)
             combatGlowCheck:Show()
             combatGlowCheck:ClearAllPoints()
             combatGlowCheck:SetPoint("TOPLEFT", sliderContainer, "TOPLEFT", 0, y)
-            y = y - 32
+            y = y - 26
             if DKAssistDB.spells.festeringScythe.combatGlow ~= false then
                 PlaceSlider(gsGrace)
             else
                 gsGrace.container:Hide()
             end
+            ghoulSection:ClearAllPoints()
+            ghoulSection:SetPoint("TOPLEFT", warningSection, "BOTTOMLEFT", 0, -10)
+            ghoulReminderHeader:Show()
+            ghoulReminderHeader:ClearAllPoints()
+            ghoulReminderHeader:SetPoint("TOP", ghoulSection, "TOP", 0, -12)
             ghoulGlowCheck:Show()
             ghoulGlowCheck:ClearAllPoints()
-            ghoulGlowCheck:SetPoint("TOPLEFT", sliderContainer, "TOPLEFT", 0, y)
-            y = y - 28
+            ghoulGlowCheck:SetPoint("TOPLEFT", ghoulSection, "TOPLEFT", 16, -24)
             ghoulHint:Show()
             ghoulHint:ClearAllPoints()
-            ghoulHint:SetPoint("TOPLEFT", sliderContainer, "TOPLEFT", 6, y)
-            y = y - 30
+            ghoulHint:SetPoint("TOPLEFT", ghoulSection, "TOPLEFT", 16, -48)
         elseif selectedKey == "runic" then
             gsTiming.container:Hide()
+            warningSection:Show()
+            ghoulSection:Hide()
+            warningTimingHeader:SetText("Runic Power threshold")
+            warningTimingHeader:Show()
+            warningTimingHeader:ClearAllPoints()
+            warningTimingHeader:SetPoint("TOP", warningSection, "TOP", 0, -13)
+            y = -16
+            ghoulReminderHeader:Hide()
             combatGlowCheck:Hide()
             ghoulGlowCheck:Hide()
             ghoulHint:Hide()
@@ -467,19 +565,37 @@ function addon:CreateConfigPanel(standalone)
         else
             gsTiming.container:Hide()
             rpThreshold.container:Hide()
+            warningSection:Hide()
+            ghoulSection:Hide()
+            warningTimingHeader:Hide()
+            ghoulReminderHeader:Hide()
             combatGlowCheck:Hide()
             ghoulGlowCheck:Hide()
             ghoulHint:Hide()
             gsGrace.container:Hide()
         end
         for _, s in ipairs(glowSliders) do
-            if vis[s] then PlaceSlider(s) else s.container:Hide() end
+            if vis[s] then PlaceAppearanceSlider(s) else s.container:Hide() end
         end
         sliderContainer:SetHeight(math.max(40, -y))
+        appearanceContainer:SetHeight(math.max(40, -appearanceY))
+        appearanceSection:SetHeight(math.max(100, -appearanceY + 40))
+        local appearanceNames = {
+            pixel = "Pixel Glow",
+            autocast = "Autocast Shine",
+            button = "Button Glow",
+            proc = "Proc Border",
+        }
+        appearanceHeader:SetText((appearanceNames[gt] or "Glow") .. " appearance")
+        appearanceHeader:SetShown(next(vis) ~= nil)
+        appearanceSection:SetShown(next(vis) ~= nil)
     end
 
+    -- Keep the target selector in a reserved footer row.  The Festering page
+    -- has more controls than other pages, so anchoring it to the variable
+    -- height slider container made it collide with Rescan/Test.
     local cdmFesteringCheck = CreateFrame("CheckButton", nil, panel, "UICheckButtonTemplate")
-    cdmFesteringCheck:SetPoint("TOPLEFT", sliderContainer, "BOTTOMLEFT", 0, -8)
+    cdmFesteringCheck:SetPoint("BOTTOMLEFT", panel, "BOTTOMLEFT", PADDING, 36)
     cdmFesteringCheck.Text:SetText("Use Cooldown Manager (instead of action bars)")
     cdmFesteringCheck.Text:SetFontObject("GameFontHighlightSmall")
 
@@ -548,9 +664,70 @@ function addon:CreateConfigPanel(standalone)
         festeringDesc,
         glowStyleLabel, glowStyleDD,
         glowColorLabel, glowSwatch, glowColorHint, glowPresetLabel,
-        sliderContainer, cdmFesteringCheck,
+        sliderContainer, appearanceContainer, styleSection, warningSection,
+        ghoulSection, appearanceSection, cdmFesteringCheck,
     }
     for _, b in ipairs(glowPresetBtns) do table.insert(festeringWidgets, b) end
+
+    -- The glow pages use a fixed card layout.  This is intentionally explicit
+    -- instead of chaining cards to variable-height controls: every selector
+    -- page (Festering, Sudden Doom and Runic Power) gets the same clean grid.
+    local function LayoutGlowCards(cardTitle)
+        styleSection:ClearAllPoints()
+        styleSection:SetPoint("TOPLEFT", panel, "TOPLEFT", 14, -70)
+        styleSection:SetSize(hostLeftWidth, 220)
+        styleSectionTitle:SetText(cardTitle)
+
+        selectorLabel:ClearAllPoints()
+        selectorLabel:SetPoint("TOPLEFT", styleSection, "TOPLEFT", 16, -42)
+        selectorDD:ClearAllPoints()
+        selectorDD:SetPoint("LEFT", selectorLabel, "RIGHT", -8, -2)
+        enableCheck:ClearAllPoints()
+        enableCheck:SetPoint("TOPLEFT", selectorLabel, "BOTTOMLEFT", 0, -10)
+        -- The compact reference layout does not use an in-card description.
+        festeringDesc:Hide()
+        glowStyleLabel:ClearAllPoints()
+        glowStyleLabel:SetPoint("TOPLEFT", enableCheck, "BOTTOMLEFT", 0, -12)
+        glowStyleDD:ClearAllPoints()
+        glowStyleDD:SetPoint("LEFT", glowStyleLabel, "RIGHT", -8, -2)
+        glowColorLabel:ClearAllPoints()
+        glowColorLabel:SetPoint("TOPLEFT", glowStyleLabel, "BOTTOMLEFT", 0, -30)
+        glowPresetLabel:ClearAllPoints()
+        glowPresetLabel:SetPoint("TOPLEFT", glowColorLabel, "BOTTOMLEFT", 0, -20)
+
+        warningSection:ClearAllPoints()
+        warningSection:SetPoint("TOPLEFT", panel, "TOPLEFT", 14, -302)
+        warningSection:SetSize(hostLeftWidth, 184)
+        ghoulSection:SetSize(hostLeftWidth, 68)
+        sliderContainer:ClearAllPoints()
+        sliderContainer:SetPoint("TOPLEFT", warningSection, "TOPLEFT", 16, -26)
+
+        appearanceContainer:ClearAllPoints()
+        appearanceContainer:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -14, -310)
+        appearanceContainer:SetSize(hostRightWidth, 250)
+        appearanceSection:ClearAllPoints()
+        appearanceSection:SetPoint("TOPLEFT", appearanceContainer, "TOPLEFT", -12, 18)
+        appearanceSection:SetSize(hostRightWidth + 24, 256)
+    end
+
+    local function LayoutStandardControls()
+        styleSection:ClearAllPoints()
+        styleSection:SetPoint("TOPLEFT", panel, "TOPLEFT", 14, -70)
+        styleSection:SetSize(hostLeftWidth, 500)
+        styleSection:Show()
+        local titles = {
+            putrefy = "Putrefy Warning",
+            dnd = "Death and Decay Tracker",
+            soulreaper = "Soul Reaper",
+        }
+        styleSectionTitle:SetText(titles[selectedKey] or "DK Assist Settings")
+        selectorLabel:ClearAllPoints()
+        selectorLabel:SetPoint("TOPLEFT", styleSection, "TOPLEFT", 16, -46)
+        selectorDD:ClearAllPoints()
+        selectorDD:SetPoint("LEFT", selectorLabel, "RIGHT", -8, -2)
+        enableCheck:ClearAllPoints()
+        enableCheck:SetPoint("TOPLEFT", selectorLabel, "BOTTOMLEFT", 0, -16)
+    end
 
     -- -------------------------------------------------------
     -- PUTREFY section widgets
@@ -559,7 +736,9 @@ function addon:CreateConfigPanel(standalone)
     -- Description
     local putrefyDesc = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     putrefyDesc:SetPoint("TOPLEFT", enableCheck, "BOTTOMLEFT", 0, -6)
-    putrefyDesc:SetWidth(380)
+    -- Match the active left card width so the description never spills into
+    -- the preview column (especially in Blizzard's narrower AddOns panel).
+    putrefyDesc:SetWidth(hostLeftWidth - 32)
     putrefyDesc:SetJustifyH("LEFT")
     putrefyDesc:SetText("Shows a warning on your Putrefy button when Dark Transformation has less than 15 seconds remaining on its cooldown, reminding you to hold Putrefy.")
     putrefyDesc:SetTextColor(0.65, 0.65, 0.65)
@@ -842,9 +1021,9 @@ function addon:CreateConfigPanel(standalone)
     -- -------------------------------------------------------
     local rescanBtn = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
     rescanBtn:SetSize(120, 24)
-    -- Keep action buttons beneath the configuration controls, including the
-    -- Cooldown Manager checkbox on short Settings canvases.
-    rescanBtn:SetPoint("BOTTOMLEFT", panel, "BOTTOMLEFT", PADDING, 48)
+    -- Fixed bottom action row; the Cooldown Manager checkbox has its own row
+    -- directly above this one on every settings page.
+    rescanBtn:SetPoint("BOTTOMLEFT", panel, "BOTTOMLEFT", PADDING, 18)
     rescanBtn:SetText("Rescan Bars")
     rescanBtn:SetScript("OnClick", function()
         addon:ScanAllButtons()
@@ -891,6 +1070,7 @@ function addon:CreateConfigPanel(standalone)
         for _, w in ipairs(gwSubWidgets)     do w:Hide() end
         for _, w in ipairs(dndWidgets)       do w:Show() end
         for _, w in ipairs(srWidgets)        do w:Hide() end
+        styleSection:Show()
         rescanBtn:Hide()
         testBtn:Show()
     end
@@ -905,6 +1085,7 @@ function addon:CreateConfigPanel(standalone)
         for _, w in ipairs(gwSubWidgets)     do w:Hide() end
         for _, w in ipairs(dndWidgets)       do w:Hide() end
         for _, w in ipairs(srWidgets)        do w:Show() end
+        styleSection:Show()
         rescanBtn:Hide()
         testBtn:Hide()
     end
@@ -1023,6 +1204,9 @@ function addon:CreateConfigPanel(standalone)
         for _, w in ipairs(putrefyWidgets)   do w:Show() end
         for _, w in ipairs(dndWidgets)       do w:Hide() end
         for _, w in ipairs(srWidgets)        do w:Hide() end
+        styleSection:Show()
+        cdmPutrefyCheck:ClearAllPoints()
+        cdmPutrefyCheck:SetPoint("BOTTOMLEFT", panel, "BOTTOMLEFT", PADDING, 46)
         rescanBtn:Show()
         testBtn:Show()
         UpdatePutrefySubSections()
@@ -1186,6 +1370,7 @@ function addon:CreateConfigPanel(standalone)
         addon:StopDnDTest()
 
         if selectedKey == "festering" then
+            LayoutGlowCards("Festering Scythe Warning")
             enableCheck.Text:SetText("Enable glow")
             enableCheck:SetChecked(gs.enabled)
             enableCheck:Show()
@@ -1197,9 +1382,11 @@ function addon:CreateConfigPanel(standalone)
             ghoulGlowCheck:SetChecked(gs.lesserGhoulGlow or false)
             for _, s in ipairs(glowSliders) do s.refresh() end
             cdmFesteringCheck:SetChecked(DKAssistDB.trackCDMFestering or false)
-            festeringDesc:SetText("Glows Festering Strike/Scythe when the Festering Scythe buff is about to expire or is missing. Only glows in combat. Choose either your action bar or the Cooldown Manager below.")
+            festeringDesc:SetText("Glows Festering Strike/Scythe when its warning is ready. Choose action bars or the Cooldown Manager below.")
             ShowFesteringSection()
+            festeringDesc:Hide()
         elseif selectedKey == "deathcoil" or selectedKey == "epidemic" then
+            LayoutGlowCards(selectedKey == "deathcoil" and "Death Coil Glow" or "Epidemic Glow")
             local s = GetSelectedGlowSettings()
             local name = selectedKey == "deathcoil" and "Death Coil" or "Epidemic"
             enableCheck.Text:SetText("Enable Sudden Doom glow")
@@ -1210,10 +1397,12 @@ function addon:CreateConfigPanel(standalone)
             for _, slider in ipairs(glowSliders) do slider.refresh() end
             festeringDesc:SetText("Glows " .. name .. " when Sudden Doom procs. Choose either your action bar or the Cooldown Manager below.")
             ShowFesteringSection()
+            festeringDesc:Hide()
             gsTiming.container:Hide()
             cdmFesteringCheck:SetChecked(DKAssistDB.trackCDMSuddenDoom or false)
             cdmFesteringCheck:Show()
         elseif selectedKey == "runic" then
+            LayoutGlowCards("Runic Power Warning")
             enableCheck.Text:SetText("Enable Runic Power glow")
             enableCheck:SetChecked(rs.enabled)
             enableCheck:Show()
@@ -1223,8 +1412,10 @@ function addon:CreateConfigPanel(standalone)
             rpThreshold.refresh()
             for _, s in ipairs(glowSliders) do s.refresh() end
             ShowFesteringSection()
+            festeringDesc:Hide()
             cdmFesteringCheck:Hide()
         elseif selectedKey == "putrefy" then
+            LayoutStandardControls()
             enableCheck.Text:SetText("Enable warning")
             enableCheck:SetChecked(ps.enabled)
             enableCheck:Show()
@@ -1236,6 +1427,7 @@ function addon:CreateConfigPanel(standalone)
             cdmPutrefyCheck:SetChecked(DKAssistDB.trackCDMPutrefy or false)
             ShowPutrefySection()
         elseif selectedKey == "dnd" then
+            LayoutStandardControls()
             enableCheck.Text:SetText("Enable tracker")
             enableCheck:SetChecked(ds.enabled)
             enableCheck:Show()
@@ -1244,6 +1436,7 @@ function addon:CreateConfigPanel(standalone)
             dndLockCheck:SetChecked(ds.locked or false)
             ShowDnDSection()
         elseif selectedKey == "soulreaper" then
+            LayoutStandardControls()
             enableCheck:Hide()
             InitSRModeDD()
             UpdateSRDescription()

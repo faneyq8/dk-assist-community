@@ -149,8 +149,7 @@ local DEFAULT_GLOW_SETTINGS = {
     -- player after this optional grace period.
     combatGlow  = true,
     combatGrace = 0,
-    -- Second, independent trigger: glow while the Lesser Ghoul buff is gone,
-    -- read from the Cooldown Manager rather than from the aura itself.
+    -- Independent reminder while Lesser Ghoul is absent in combat.
     lesserGhoulGlow = false,
 }
 
@@ -697,10 +696,6 @@ local festeringTimer      = nil
 local festeringGraceTimer = nil
 local festeringGlowActive = false
 local festeringSuppressed = false
-
--- The Festering button has two independent reasons to glow: its own buff is
--- expiring, or the Lesser Ghoul buff is missing.  Tracking them separately
--- stops one from switching the other off.
 local festeringReasons = { expiry = false, ghoul = false }
 
 local function HideFesteringGlow()
@@ -732,10 +727,8 @@ local function StopFesteringGlow()
     end
     CancelFesteringGrace()
     festeringSuppressed = false
-    -- Written directly rather than through SetFesteringReason: this function is
-    -- declared above those helpers, so the upvalues do not exist here yet.
     festeringReasons.expiry = false
-    festeringReasons.ghoul  = false
+    festeringReasons.ghoul = false
     HideFesteringGlow()
 end
 
@@ -773,8 +766,8 @@ local function ShowFesteringGlow()
     return applied
 end
 
--- Single place that decides whether the Festering glow is up: on if any
--- reason holds, off once they all clear.
+-- Festering can have two independent glow reasons.  Do not let one clear the
+-- other (for example, casting Scythe must not hide the Lesser Ghoul warning).
 local function ApplyFesteringGlow()
     if festeringReasons.expiry or festeringReasons.ghoul then
         ShowFesteringGlow()
@@ -811,8 +804,6 @@ local function StartFesteringTimer()
         festeringTimer = nil
     end
     CancelFesteringGrace()
-    -- Clears only the expiry reason: a missing Lesser Ghoul buff is tracked
-    -- separately and must survive a Festering Scythe cast.
     SetFesteringReason("expiry", false)
 
     local settings = DKAssistDB.spells.festeringScythe
@@ -847,7 +838,6 @@ end
 
 local function OnFesteringCombatEnd()
     CancelFesteringGrace()
-    -- Both reminders are combat-only, so leaving combat clears both.
     SetFesteringReason("ghoul", false)
     SetFesteringReason("expiry", false)
 end
@@ -875,18 +865,10 @@ function addon:CancelFesteringCombatGlow()
     CancelFesteringGrace()
 end
 
--- -------------------------------------------------------
--- Lesser Ghoul (missing-buff reminder)
--- -------------------------------------------------------
--- Lesser Ghoul is a stacking buff, and 12.1 marks aura stacks secret, so the
--- aura cannot be read directly.  Blizzard's Cooldown Manager is allowed to
--- read it, and shows or hides its tracked-buff icon accordingly -- so we watch
--- that icon instead.  A frame's shown state is a plain UI value and never
--- taints us.
+-- Lesser Ghoul aura stacks are secret in 12.1, so watch the visibility of its
+-- tracked Cooldown Manager icon instead of reading the aura directly.
 local lesserGhoulFrame = nil
 
--- CDMHook owns identification, as it does for every other tracked frame; the
--- RefreshData hook re-registers so the cached frame stays current.
 function addon:RegisterCDMLesserGhoulFrame(frame)
     lesserGhoulFrame = frame
 end
@@ -905,7 +887,6 @@ ghoulWatcher:SetScript("OnUpdate", function(_, elapsed)
         return
     end
 
-    -- A hidden icon means the buff has fallen off: that is the reminder.
     SetFesteringReason("ghoul", not lesserGhoulFrame:IsShown())
 end)
 
@@ -1586,7 +1567,23 @@ initFrame:SetScript("OnEvent", function(_, event)
             -- The minimap button uses a dedicated DK Assist window; the same
             -- configuration remains available in Blizzard's AddOns settings.
             local window = CreateFrame("Frame", "DKAssistSettingsWindow", UIParent, "BackdropTemplate")
-            window:SetSize(820, 700)
+            -- Treat the standalone window like Blizzard's other panels: Esc
+            -- closes it, without affecting the embedded AddOns settings page.
+            if UISpecialFrames then
+                local registered = false
+                for _, frameName in ipairs(UISpecialFrames) do
+                    if frameName == "DKAssistSettingsWindow" then
+                        registered = true
+                        break
+                    end
+                end
+                if not registered then
+                    table.insert(UISpecialFrames, "DKAssistSettingsWindow")
+                end
+            end
+            -- Original compact window size.  The settings content below is a
+            -- fixed two-column canvas designed specifically for this size.
+            window:SetSize(780, 640)
             window:SetPoint("CENTER")
             window:SetFrameStrata("DIALOG")
             window:SetBackdrop({
@@ -1595,8 +1592,17 @@ initFrame:SetScript("OnEvent", function(_, event)
                 tile = true, tileSize = 32, edgeSize = 32,
                 insets = { left = 11, right = 12, top = 12, bottom = 11 },
             })
-            window:SetBackdropColor(0, 0, 0, 1)
+            window:SetBackdropColor(0.012, 0.012, 0.018, 1)
             window:SetBackdropBorderColor(0.35, 0.35, 0.35, 1)
+            -- Keep the standalone settings window fully opaque, then add a
+            -- restrained dark pattern above the black base.
+            local backgroundTexture = window:CreateTexture(nil, "BACKGROUND", nil, -8)
+            backgroundTexture:SetAllPoints()
+            backgroundTexture:SetColorTexture(0.012, 0.012, 0.018, 1)
+            local backgroundPattern = window:CreateTexture(nil, "BACKGROUND", nil, -7)
+            backgroundPattern:SetAllPoints()
+            backgroundPattern:SetTexture("Interface\\DialogFrame\\UI-DialogBox-Background-Dark")
+            backgroundPattern:SetVertexColor(0.16, 0.16, 0.20, 0.42)
             window:EnableMouse(true)
             window:SetMovable(true)
             window:RegisterForDrag("LeftButton")
@@ -1650,31 +1656,6 @@ SlashCmdList["DKASSIST"] = function(msg)
         else
             print("|cffcc0000DK Assist:|r Cooldown Manager tracking is disabled")
         end
-    elseif cmd == "ghoul" then
-        -- Diagnostic for the Lesser Ghoul reminder: reports every stage of the
-        -- chain so a failure can be located rather than guessed at.
-        local s = DKAssistDB and DKAssistDB.spells and DKAssistDB.spells.festeringScythe
-        local function Count(t)
-            local n = 0
-            for _ in pairs(t) do n = n + 1 end
-            return n
-        end
-        print("|cffcc0000DK Assist ghoul:|r ---- diagnostic ----")
-        print(string.format("  1. setting lesserGhoulGlow = %s", tostring(s and s.lesserGhoulGlow)))
-        print(string.format("  2. festeringScythe.enabled = %s", tostring(s and s.enabled)))
-        print(string.format("  3. CDM frame registered   = %s", tostring(lesserGhoulFrame ~= nil)))
-        if lesserGhoulFrame then
-            print(string.format("     frame:IsShown()        = %s  (false means buff missing)",
-                tostring(lesserGhoulFrame:IsShown())))
-        end
-        print(string.format("  4. reasons: expiry=%s ghoul=%s",
-            tostring(festeringReasons.expiry), tostring(festeringReasons.ghoul)))
-        print(string.format("  5. trackCDMFestering = %s -> glow uses %s",
-            tostring(DKAssistDB and DKAssistDB.trackCDMFestering),
-            (DKAssistDB and DKAssistDB.trackCDMFestering) and "CDM overlays" or "action bar overlays"))
-        print(string.format("     action bar overlays = %d, CDM overlays = %d",
-            Count(festeringOverlays), Count(cdmFesteringOverlays)))
-        print(string.format("  6. inCombat = %s (reminder is combat-only)", tostring(InCombatLockdown())))
     elseif cmd == "debug" then
         addon:ToggleDebug()
     elseif cmd == "minimap" then
@@ -1693,7 +1674,6 @@ SlashCmdList["DKASSIST"] = function(msg)
             print("|cffcc0000DK Assist:|r /dka scan - Rescan action bars")
             print("|cffcc0000DK Assist:|r /dka cdmscan - Rescan Cooldown Manager")
             print("|cffcc0000DK Assist:|r /dka debug - Toggle debug logging")
-            print("|cffcc0000DK Assist:|r /dka ghoul - Diagnose the Lesser Ghoul reminder")
             print("|cffcc0000DK Assist:|r /dka minimap - Show Minimap button")
         end
     end

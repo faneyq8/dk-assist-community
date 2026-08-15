@@ -20,20 +20,16 @@ local function GetCDMSpellID(item)
     return info and info.spellID
 end
 
--- For a tracked buff the cooldown info reports the spec aura rather than the
--- buff, so Lesser Ghoul is identified by the item's own spell ID instead.  That
--- call can return a secret value once combat starts, so identity is resolved
--- out of combat only; the cached frame carries the glow through the fight.
+-- The tracked-buff icon identifies Lesser Ghoul safely outside combat; the
+-- cached frame is then watched during combat without reading secret aura data.
 local function GetCDMItemSpellID(item)
     if InCombatLockdown() or not (item and item.GetSpellID) then return nil end
     return item:GetSpellID()
 end
 
--- Watched rather than decorated: the glow it drives may land on an action bar
--- button, so it is not gated behind the CDM tracking flags.
 local function LesserGhoulEnabled()
-    local s = DKAssistDB and DKAssistDB.spells and DKAssistDB.spells.festeringScythe
-    return (s and s.enabled and s.lesserGhoulGlow) and true or false
+    local settings = DKAssistDB and DKAssistDB.spells and DKAssistDB.spells.festeringScythe
+    return settings and settings.enabled and settings.lesserGhoulGlow or false
 end
 
 local function RegisterItem(item)
