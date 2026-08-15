@@ -6,12 +6,16 @@ This is a community-maintained fork of **DK Assist** by ZachoWOW. It retains the
 
 ## Features
 
-- Festering Scythe action-bar glow.
-- Putrefy warning with a configurable red cross or glow.
-- Putrefy hold indicator: hidden during Dark Transformation, including Death Coil and Epidemic duration extensions; shown outside that window.
-- Death and Decay tracker.
-- Soul Reaper glow suppression.
-- Settings window, addon-list icon, minimap button, and HidingBar / DataBroker support.
+- **Festering Scythe warning** — configurable action-bar or Cooldown Manager glow when Festering Strike changes to Festering Scythe; includes expiry timing, combat-start reminder, and optional Lesser Ghoul reminder.
+- **Sudden Doom glows** — separate, configurable alerts for Death Coil and Epidemic when Sudden Doom procs. Necrotic Coil and Graveyard are also supported where applicable.
+- **Putrefy hold warning** — configurable red cross or glow that tells you to hold Putrefy while Dark Transformation is unavailable. The warning hides during Dark Transformation and its Death Coil / Epidemic duration extensions.
+- **Runic Power cap warning** — glow your Runic Power bar at a configurable threshold to prevent overcapping; supports Blizzard and compatible UI bars.
+- **Death and Decay tracker** — tracks the active Death and Decay window with optional movable display controls.
+- **Soul Reaper control** — choose Blizzard's normal execute glow or suppress it entirely.
+- **Four glow styles** — Pixel Glow, Autocast Shine, Button Glow, and Proc Border, with independent colours, presets, animation settings, thickness/particles, and opacity where relevant.
+- **Action Bar or Cooldown Manager** — choose the target for Festering Scythe, Sudden Doom, and Putrefy warnings; includes Rescan Bars and Test tools.
+- **Modern settings UI** — compact standalone settings window plus Blizzard AddOns integration, live previews, and Esc-to-close support.
+- **Convenient access** — minimap button, addon compartment entry, HidingBar / DataBroker support, and the `/dka` command.
 
 ## Installation
 
