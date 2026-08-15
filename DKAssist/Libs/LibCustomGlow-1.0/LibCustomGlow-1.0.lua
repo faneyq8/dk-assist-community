@@ -11,10 +11,8 @@ if not LibStub then error(MAJOR_VERSION .. " requires LibStub.") end
 local lib, oldversion = LibStub:NewLibrary(MAJOR_VERSION, MINOR_VERSION)
 if not lib then return end
 local Masque = LibStub("Masque", true)
--- Blizzard moved AnimateTexCoords into the TextureUtil namespace, so the bare
--- global is nil on current clients and the Button Glow updater errored every
--- frame.  Resolved the same way as LibCustomGlow master; the rest of this file
--- is deliberately kept, as it is ahead of master (multi-glow keys, pool reuse).
+-- Retail moved this helper into TextureUtil.  Resolve both locations so the
+-- Button Glow ants animation works on current clients without a nil call.
 local AnimateTexCoords = (TextureUtil and TextureUtil.AnimateTexCoords) or _G.AnimateTexCoords
 
 local isRetail = WOW_PROJECT_ID == WOW_PROJECT_MAINLINE
@@ -566,7 +564,9 @@ local function bgHide(self)
 end
 
 local function bgUpdate(self, elapsed)
-    AnimateTexCoords(self.ants, 256, 256, 48, 48, 22, elapsed, self.throttle);
+    if AnimateTexCoords then
+        AnimateTexCoords(self.ants, 256, 256, 48, 48, 22, elapsed, self.throttle)
+    end
     local cooldown = self:GetParent().cooldown;
     local duration = cooldown and cooldown:IsShown() and cooldown:GetCooldownDuration()
     if((not issecretvalue or not issecretvalue(duration)) and duration and duration > 3000) then
