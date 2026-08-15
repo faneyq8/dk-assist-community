@@ -373,6 +373,33 @@ function addon:CreateConfigPanel(standalone)
         function() return DKAssistDB.spells.festeringScythe.combatGrace or 0 end,
         function(v) DKAssistDB.spells.festeringScythe.combatGrace=v end, 0)
 
+    local ghoulGlowCheck = CreateFrame("CheckButton", nil, sliderContainer, "UICheckButtonTemplate")
+    ghoulGlowCheck.Text:SetText("Also glow when Lesser Ghoul is missing")
+    ghoulGlowCheck.Text:SetFontObject("GameFontNormal")
+    ghoulGlowCheck:SetScript("OnClick", function(self)
+        DKAssistDB.spells.festeringScythe.lesserGhoulGlow = self:GetChecked()
+        -- Pick up the Cooldown Manager buff icon straight away, so the setting
+        -- takes effect without a reload.
+        if self:GetChecked() and addon.RefreshCDMTrackedItems then
+            addon:RefreshCDMTrackedItems()
+        end
+    end)
+    ghoulGlowCheck:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:SetText("Lesser Ghoul reminder", 1, 1, 1)
+        GameTooltip:AddLine("Glow in combat whenever the Lesser Ghoul buff is not on you, so you know to rebuild stacks. Requires Lesser Ghoul in the Cooldown Manager, under either Tracked Buffs or Tracked Bars.", 1, 0.82, 0, true)
+        GameTooltip:Show()
+    end)
+    ghoulGlowCheck:SetScript("OnLeave", GameTooltip_Hide)
+
+    -- The buff state is read from the Cooldown Manager's icon, so the setting
+    -- does nothing on its own if Lesser Ghoul is not tracked there.
+    local ghoulHint = sliderContainer:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    ghoulHint:SetWidth(370)
+    ghoulHint:SetJustifyH("LEFT")
+    ghoulHint:SetText("Requires Lesser Ghoul to be tracked in the Cooldown Manager, under either Tracked Buffs or Tracked Bars.")
+    ghoulHint:SetTextColor(0.65, 0.65, 0.65)
+
     local gsSpeed = CreateSlider(sliderContainer,"Animation Speed",0.05,2.0,0.05,
         function() return GetSelectedGlowSettings().speed end,
         function(v) GetSelectedGlowSettings().speed=v end, -50)
@@ -422,15 +449,27 @@ function addon:CreateConfigPanel(standalone)
             else
                 gsGrace.container:Hide()
             end
+            ghoulGlowCheck:Show()
+            ghoulGlowCheck:ClearAllPoints()
+            ghoulGlowCheck:SetPoint("TOPLEFT", sliderContainer, "TOPLEFT", 0, y)
+            y = y - 28
+            ghoulHint:Show()
+            ghoulHint:ClearAllPoints()
+            ghoulHint:SetPoint("TOPLEFT", sliderContainer, "TOPLEFT", 6, y)
+            y = y - 30
         elseif selectedKey == "runic" then
             gsTiming.container:Hide()
             combatGlowCheck:Hide()
+            ghoulGlowCheck:Hide()
+            ghoulHint:Hide()
             gsGrace.container:Hide()
             PlaceSlider(rpThreshold)
         else
             gsTiming.container:Hide()
             rpThreshold.container:Hide()
             combatGlowCheck:Hide()
+            ghoulGlowCheck:Hide()
+            ghoulHint:Hide()
             gsGrace.container:Hide()
         end
         for _, s in ipairs(glowSliders) do
@@ -1155,6 +1194,7 @@ function addon:CreateConfigPanel(standalone)
             gsTiming.refresh()
             gsGrace.refresh()
             combatGlowCheck:SetChecked(gs.combatGlow ~= false)
+            ghoulGlowCheck:SetChecked(gs.lesserGhoulGlow or false)
             for _, s in ipairs(glowSliders) do s.refresh() end
             cdmFesteringCheck:SetChecked(DKAssistDB.trackCDMFestering or false)
             festeringDesc:SetText("Glows Festering Strike/Scythe when the Festering Scythe buff is about to expire or is missing. Only glows in combat. Choose either your action bar or the Cooldown Manager below.")
