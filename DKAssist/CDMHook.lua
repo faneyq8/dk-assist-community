@@ -7,6 +7,7 @@ local DEATH_COIL_SPELL_ID = 47541
 local NECROTIC_COIL_SPELL_ID = 1242174
 local EPIDEMIC_SPELL_ID = 207317
 local GRAVEYARD_SPELL_ID = 383269
+local LESSER_GHOUL_SPELL_ID = 1254252
 local hooked = false
 
 local function GetCDMSpellID(item)
@@ -19,8 +20,25 @@ local function GetCDMSpellID(item)
     return info and info.spellID
 end
 
+-- For a tracked buff the cooldown info reports the spec aura rather than the
+-- buff, so Lesser Ghoul is identified by the item's own spell ID instead.  That
+-- call can return a secret value once combat starts, so identity is resolved
+-- out of combat only; the cached frame carries the glow through the fight.
+local function GetCDMItemSpellID(item)
+    if InCombatLockdown() or not (item and item.GetSpellID) then return nil end
+    return item:GetSpellID()
+end
+
+-- Watched rather than decorated: the glow it drives may land on an action bar
+-- button, so it is not gated behind the CDM tracking flags.
+local function LesserGhoulEnabled()
+    local s = DKAssistDB and DKAssistDB.spells and DKAssistDB.spells.festeringScythe
+    return (s and s.enabled and s.lesserGhoulGlow) and true or false
+end
+
 local function RegisterItem(item)
-    if not DKAssistDB or (not DKAssistDB.trackCDMPutrefy and not DKAssistDB.trackCDMFestering and not DKAssistDB.trackCDMSuddenDoom) then return end
+    if not DKAssistDB or (not DKAssistDB.trackCDMPutrefy and not DKAssistDB.trackCDMFestering
+        and not DKAssistDB.trackCDMSuddenDoom and not LesserGhoulEnabled()) then return end
     local ok, kind = pcall(function()
         local spellID = GetCDMSpellID(item)
         if DKAssistDB.trackCDMPutrefy and spellID == PUTREFY_SPELL_ID then
@@ -32,6 +50,8 @@ local function RegisterItem(item)
             return "deathCoil"
         elseif DKAssistDB.trackCDMSuddenDoom and (spellID == EPIDEMIC_SPELL_ID or spellID == GRAVEYARD_SPELL_ID) then
             return "epidemic"
+        elseif LesserGhoulEnabled() and GetCDMItemSpellID(item) == LESSER_GHOUL_SPELL_ID then
+            return "lesserGhoul"
         end
     end)
     if not ok then return end
@@ -42,6 +62,8 @@ local function RegisterItem(item)
         addon:RegisterCDMFesteringFrame(item)
     elseif kind == "deathCoil" or kind == "epidemic" then
         addon:RegisterCDMSuddenDoomFrame(item, kind)
+    elseif kind == "lesserGhoul" then
+        addon:RegisterCDMLesserGhoulFrame(item)
     end
 end
 
@@ -67,6 +89,8 @@ local function RegisterEllesmereItem(item, euiCDM)
             return "deathCoil"
         elseif DKAssistDB.trackCDMSuddenDoom and (spellID == EPIDEMIC_SPELL_ID or spellID == GRAVEYARD_SPELL_ID) then
             return "epidemic"
+        elseif LesserGhoulEnabled() and spellID == LESSER_GHOUL_SPELL_ID then
+            return "lesserGhoul"
         end
     end)
     if not ok then return end
@@ -76,6 +100,8 @@ local function RegisterEllesmereItem(item, euiCDM)
         addon:RegisterCDMFesteringFrame(item)
     elseif kind == "deathCoil" or kind == "epidemic" then
         addon:RegisterCDMSuddenDoomFrame(item, kind)
+    elseif kind == "lesserGhoul" then
+        addon:RegisterCDMLesserGhoulFrame(item)
     end
 end
 

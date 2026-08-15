@@ -149,6 +149,9 @@ local DEFAULT_GLOW_SETTINGS = {
     -- player after this optional grace period.
     combatGlow  = true,
     combatGrace = 0,
+    -- Second, independent trigger: glow while the Lesser Ghoul buff is gone,
+    -- read from the Cooldown Manager rather than from the aura itself.
+    lesserGhoulGlow = false,
 }
 
 local DEFAULT_PUTREFY_SETTINGS = {
@@ -695,6 +698,11 @@ local festeringGraceTimer = nil
 local festeringGlowActive = false
 local festeringSuppressed = false
 
+-- The Festering button has two independent reasons to glow: its own buff is
+-- expiring, or the Lesser Ghoul buff is missing.  Tracking them separately
+-- stops one from switching the other off.
+local festeringReasons = { expiry = false, ghoul = false }
+
 local function HideFesteringGlow()
     festeringGlowActive = false
     local function hideOverlay(overlay)
@@ -724,6 +732,10 @@ local function StopFesteringGlow()
     end
     CancelFesteringGrace()
     festeringSuppressed = false
+    -- Written directly rather than through SetFesteringReason: this function is
+    -- declared above those helpers, so the upvalues do not exist here yet.
+    festeringReasons.expiry = false
+    festeringReasons.ghoul  = false
     HideFesteringGlow()
 end
 
@@ -761,6 +773,23 @@ local function ShowFesteringGlow()
     return applied
 end
 
+-- Single place that decides whether the Festering glow is up: on if any
+-- reason holds, off once they all clear.
+local function ApplyFesteringGlow()
+    if festeringReasons.expiry or festeringReasons.ghoul then
+        ShowFesteringGlow()
+    else
+        HideFesteringGlow()
+    end
+end
+
+local function SetFesteringReason(reason, value)
+    value = value and true or false
+    if festeringReasons[reason] == value then return end
+    festeringReasons[reason] = value
+    ApplyFesteringGlow()
+end
+
 -- Called by the options dropdown.  If a Festering test or warning is already
 -- visible, redraw it immediately with the newly selected direct-overlay style.
 function addon:RefreshFesteringGlowStyle()
@@ -782,7 +811,9 @@ local function StartFesteringTimer()
         festeringTimer = nil
     end
     CancelFesteringGrace()
-    HideFesteringGlow()
+    -- Clears only the expiry reason: a missing Lesser Ghoul buff is tracked
+    -- separately and must survive a Festering Scythe cast.
+    SetFesteringReason("expiry", false)
 
     local settings = DKAssistDB.spells.festeringScythe
     if not settings.enabled then return end
@@ -795,7 +826,7 @@ local function StartFesteringTimer()
         festeringSuppressed = false
         -- The buff keeps expiring out of combat, but the visual reminder is
         -- deliberately shown only during combat.
-        if InCombatLockdown() then ShowFesteringGlow() end
+        if InCombatLockdown() then SetFesteringReason("expiry", true) end
     end)
 end
 
@@ -816,7 +847,9 @@ end
 
 local function OnFesteringCombatEnd()
     CancelFesteringGrace()
-    HideFesteringGlow()
+    -- Both reminders are combat-only, so leaving combat clears both.
+    SetFesteringReason("ghoul", false)
+    SetFesteringReason("expiry", false)
 end
 
 local function OnFesteringCombatStart()
@@ -827,13 +860,13 @@ local function OnFesteringCombatStart()
 
     local grace = settings.combatGrace or 0
     if grace <= 0 then
-        ShowFesteringGlow()
+        SetFesteringReason("expiry", true)
         return
     end
     festeringGraceTimer = C_Timer.NewTimer(grace, function()
         festeringGraceTimer = nil
         if not festeringSuppressed and InCombatLockdown() then
-            ShowFesteringGlow()
+            SetFesteringReason("expiry", true)
         end
     end)
 end
@@ -841,6 +874,40 @@ end
 function addon:CancelFesteringCombatGlow()
     CancelFesteringGrace()
 end
+
+-- -------------------------------------------------------
+-- Lesser Ghoul (missing-buff reminder)
+-- -------------------------------------------------------
+-- Lesser Ghoul is a stacking buff, and 12.1 marks aura stacks secret, so the
+-- aura cannot be read directly.  Blizzard's Cooldown Manager is allowed to
+-- read it, and shows or hides its tracked-buff icon accordingly -- so we watch
+-- that icon instead.  A frame's shown state is a plain UI value and never
+-- taints us.
+local lesserGhoulFrame = nil
+
+-- CDMHook owns identification, as it does for every other tracked frame; the
+-- RefreshData hook re-registers so the cached frame stays current.
+function addon:RegisterCDMLesserGhoulFrame(frame)
+    lesserGhoulFrame = frame
+end
+
+local ghoulWatcher = CreateFrame("Frame")
+local ghoulElapsed = 0
+ghoulWatcher:SetScript("OnUpdate", function(_, elapsed)
+    ghoulElapsed = ghoulElapsed + elapsed
+    if ghoulElapsed < 0.10 then return end
+    ghoulElapsed = 0
+
+    local settings = DKAssistDB and DKAssistDB.spells and DKAssistDB.spells.festeringScythe
+    if not settings or not settings.enabled or not settings.lesserGhoulGlow
+        or not lesserGhoulFrame or not InCombatLockdown() then
+        SetFesteringReason("ghoul", false)
+        return
+    end
+
+    -- A hidden icon means the buff has fallen off: that is the reminder.
+    SetFesteringReason("ghoul", not lesserGhoulFrame:IsShown())
+end)
 
 function addon:RefreshFesteringGlows()
     if festeringGlowActive then
@@ -1583,6 +1650,31 @@ SlashCmdList["DKASSIST"] = function(msg)
         else
             print("|cffcc0000DK Assist:|r Cooldown Manager tracking is disabled")
         end
+    elseif cmd == "ghoul" then
+        -- Diagnostic for the Lesser Ghoul reminder: reports every stage of the
+        -- chain so a failure can be located rather than guessed at.
+        local s = DKAssistDB and DKAssistDB.spells and DKAssistDB.spells.festeringScythe
+        local function Count(t)
+            local n = 0
+            for _ in pairs(t) do n = n + 1 end
+            return n
+        end
+        print("|cffcc0000DK Assist ghoul:|r ---- diagnostic ----")
+        print(string.format("  1. setting lesserGhoulGlow = %s", tostring(s and s.lesserGhoulGlow)))
+        print(string.format("  2. festeringScythe.enabled = %s", tostring(s and s.enabled)))
+        print(string.format("  3. CDM frame registered   = %s", tostring(lesserGhoulFrame ~= nil)))
+        if lesserGhoulFrame then
+            print(string.format("     frame:IsShown()        = %s  (false means buff missing)",
+                tostring(lesserGhoulFrame:IsShown())))
+        end
+        print(string.format("  4. reasons: expiry=%s ghoul=%s",
+            tostring(festeringReasons.expiry), tostring(festeringReasons.ghoul)))
+        print(string.format("  5. trackCDMFestering = %s -> glow uses %s",
+            tostring(DKAssistDB and DKAssistDB.trackCDMFestering),
+            (DKAssistDB and DKAssistDB.trackCDMFestering) and "CDM overlays" or "action bar overlays"))
+        print(string.format("     action bar overlays = %d, CDM overlays = %d",
+            Count(festeringOverlays), Count(cdmFesteringOverlays)))
+        print(string.format("  6. inCombat = %s (reminder is combat-only)", tostring(InCombatLockdown())))
     elseif cmd == "debug" then
         addon:ToggleDebug()
     elseif cmd == "minimap" then
@@ -1601,6 +1693,7 @@ SlashCmdList["DKASSIST"] = function(msg)
             print("|cffcc0000DK Assist:|r /dka scan - Rescan action bars")
             print("|cffcc0000DK Assist:|r /dka cdmscan - Rescan Cooldown Manager")
             print("|cffcc0000DK Assist:|r /dka debug - Toggle debug logging")
+            print("|cffcc0000DK Assist:|r /dka ghoul - Diagnose the Lesser Ghoul reminder")
             print("|cffcc0000DK Assist:|r /dka minimap - Show Minimap button")
         end
     end
