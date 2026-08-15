@@ -23,6 +23,8 @@ function addon:CreateConfigPanel(standalone)
     local selectedKey = "festering"
     local function GetSelectedGlowSettings()
         if selectedKey == "runic" then return DKAssistDB.runicPower end
+        if selectedKey == "deathcoil" then return DKAssistDB.spells.deathCoil end
+        if selectedKey == "epidemic" then return DKAssistDB.spells.epidemic end
         return DKAssistDB.spells.festeringScythe
     end
 
@@ -132,6 +134,10 @@ function addon:CreateConfigPanel(standalone)
             iconID = C_Spell.GetSpellTexture(addon.SPELLS.SOUL_REAPER.id)
         elseif selectedKey == "runic" then
             iconID = "Interface\\Icons\\Spell_DeathKnight_BloodPresence"
+        elseif selectedKey == "deathcoil" then
+            iconID = C_Spell.GetSpellTexture(addon.SPELLS.DEATH_COIL.id)
+        elseif selectedKey == "epidemic" then
+            iconID = C_Spell.GetSpellTexture(addon.SPELLS.EPIDEMIC.id)
         end
         previewFrame:SetShown(selectedKey ~= "runic")
         previewRunicBar:SetShown(selectedKey == "runic")
@@ -165,6 +171,12 @@ function addon:CreateConfigPanel(standalone)
         if selectedKey == "festering" then
             DKAssistDB.spells.festeringScythe.enabled = self:GetChecked()
             addon:RefreshFesteringGlows()
+        elseif selectedKey == "deathcoil" then
+            DKAssistDB.spells.deathCoil.enabled = self:GetChecked()
+            addon:RefreshSuddenDoomGlows()
+        elseif selectedKey == "epidemic" then
+            DKAssistDB.spells.epidemic.enabled = self:GetChecked()
+            addon:RefreshSuddenDoomGlows()
         elseif selectedKey == "runic" then
             DKAssistDB.runicPower.enabled = self:GetChecked()
             addon:UpdateRunicPowerGlow()
@@ -186,7 +198,7 @@ function addon:CreateConfigPanel(standalone)
     festeringDesc:SetPoint("TOPLEFT", enableCheck, "BOTTOMLEFT", 0, -6)
     festeringDesc:SetWidth(380)
     festeringDesc:SetJustifyH("LEFT")
-    festeringDesc:SetText("Glows your Festering Strike/Scythe button when the Festering Scythe buff is about to expire. Configure how many seconds before expiry the glow appears.")
+    festeringDesc:SetText("Glows your Festering Strike/Scythe button when the Festering Scythe buff is about to expire or is missing. Only glows in combat.")
     festeringDesc:SetTextColor(0.65, 0.65, 0.65)
 
     -- Glow style dropdown
@@ -339,6 +351,28 @@ function addon:CreateConfigPanel(standalone)
         function() return DKAssistDB.spells.festeringScythe.glowTiming end,
         function(v) DKAssistDB.spells.festeringScythe.glowTiming=v end, 0)
 
+    local combatGlowCheck = CreateFrame("CheckButton", nil, sliderContainer, "UICheckButtonTemplate")
+    combatGlowCheck.Text:SetText("Glow at combat start")
+    combatGlowCheck.Text:SetFontObject("GameFontNormal")
+    combatGlowCheck:SetScript("OnClick", function(self)
+        DKAssistDB.spells.festeringScythe.combatGlow = self:GetChecked()
+        if not self:GetChecked() and addon.CancelFesteringCombatGlow then
+            addon:CancelFesteringCombatGlow()
+        end
+        UpdateSliderVisibility()
+    end)
+    combatGlowCheck:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:SetText("Glow at combat start", 1, 1, 1)
+        GameTooltip:AddLine("Warn when you enter combat without the Festering Scythe buff.", 1, 0.82, 0, true)
+        GameTooltip:Show()
+    end)
+    combatGlowCheck:SetScript("OnLeave", GameTooltip_Hide)
+
+    local gsGrace = CreateSlider(sliderContainer,"Combat start delay (sec)",0,20,1,
+        function() return DKAssistDB.spells.festeringScythe.combatGrace or 0 end,
+        function(v) DKAssistDB.spells.festeringScythe.combatGrace=v end, 0)
+
     local gsSpeed = CreateSlider(sliderContainer,"Animation Speed",0.05,2.0,0.05,
         function() return GetSelectedGlowSettings().speed end,
         function(v) GetSelectedGlowSettings().speed=v end, -50)
@@ -379,12 +413,25 @@ function addon:CreateConfigPanel(standalone)
         if selectedKey == "festering" then
             rpThreshold.container:Hide()
             PlaceSlider(gsTiming)
+            combatGlowCheck:Show()
+            combatGlowCheck:ClearAllPoints()
+            combatGlowCheck:SetPoint("TOPLEFT", sliderContainer, "TOPLEFT", 0, y)
+            y = y - 32
+            if DKAssistDB.spells.festeringScythe.combatGlow ~= false then
+                PlaceSlider(gsGrace)
+            else
+                gsGrace.container:Hide()
+            end
         elseif selectedKey == "runic" then
             gsTiming.container:Hide()
+            combatGlowCheck:Hide()
+            gsGrace.container:Hide()
             PlaceSlider(rpThreshold)
         else
             gsTiming.container:Hide()
             rpThreshold.container:Hide()
+            combatGlowCheck:Hide()
+            gsGrace.container:Hide()
         end
         for _, s in ipairs(glowSliders) do
             if vis[s] then PlaceSlider(s) else s.container:Hide() end
@@ -394,7 +441,7 @@ function addon:CreateConfigPanel(standalone)
 
     local cdmFesteringCheck = CreateFrame("CheckButton", nil, panel, "UICheckButtonTemplate")
     cdmFesteringCheck:SetPoint("TOPLEFT", sliderContainer, "BOTTOMLEFT", 0, -8)
-    cdmFesteringCheck.Text:SetText("Track on Cooldown Manager")
+    cdmFesteringCheck.Text:SetText("Use Cooldown Manager (instead of action bars)")
     cdmFesteringCheck.Text:SetFontObject("GameFontHighlightSmall")
 
     local reloadBtnFestering = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
@@ -404,15 +451,55 @@ function addon:CreateConfigPanel(standalone)
     reloadBtnFestering:Hide()
     reloadBtnFestering:SetScript("OnClick", function() ReloadUI() end)
 
+    if not StaticPopupDialogs.DKASSIST_RELOAD_FESTERING then
+        StaticPopupDialogs.DKASSIST_RELOAD_FESTERING = {
+            text = "Reload UI now to apply the Festering Scythe target change?",
+            button1 = "Reload UI",
+            button2 = CANCEL,
+            OnAccept = ReloadUI,
+            timeout = 0,
+            whileDead = true,
+            hideOnEscape = true,
+            preferredIndex = 3,
+        }
+    end
+
+    if not StaticPopupDialogs.DKASSIST_RELOAD_SUDDEN_DOOM then
+        StaticPopupDialogs.DKASSIST_RELOAD_SUDDEN_DOOM = {
+            text = "Reload UI now to apply the Sudden Doom target change?",
+            button1 = "Reload UI",
+            button2 = CANCEL,
+            OnAccept = ReloadUI,
+            timeout = 0,
+            whileDead = true,
+            hideOnEscape = true,
+            preferredIndex = 3,
+        }
+    end
+
     cdmFesteringCheck:SetScript("OnClick", function(self)
-        DKAssistDB.trackCDMFestering = self:GetChecked()
-        reloadBtnFestering:Show()
+        if selectedKey == "deathcoil" or selectedKey == "epidemic" then
+            addon:StopSuddenDoomGlows()
+            DKAssistDB.trackCDMSuddenDoom = self:GetChecked()
+            if addon.ClearCDMSuddenDoomOverlays then addon:ClearCDMSuddenDoomOverlays() end
+            addon:ScanAllButtons()
+            if addon.RefreshCDMTrackedItems then addon:RefreshCDMTrackedItems() end
+            reloadBtnFestering:Show()
+            StaticPopup_Show("DKASSIST_RELOAD_SUDDEN_DOOM")
+        else
+            DKAssistDB.trackCDMFestering = self:GetChecked()
+            addon:StopAll()
+            addon:ScanAllButtons()
+            if addon.RefreshCDMTrackedItems then addon:RefreshCDMTrackedItems() end
+            reloadBtnFestering:Show()
+            StaticPopup_Show("DKASSIST_RELOAD_FESTERING")
+        end
     end)
     cdmFesteringCheck:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
         GameTooltip:SetText("Cooldown Manager", 1, 1, 1)
-        GameTooltip:AddLine("Enable if Festering Strike/Scythe is visible in your Cooldown Manager.", 1, 0.82, 0, true)
-        GameTooltip:AddLine("Requires UI reload to take effect.", 1, 0.5, 0.5, true)
+        GameTooltip:AddLine("Checked: glow the Cooldown Manager button. Unchecked: glow your action-bar button.", 1, 0.82, 0, true)
+        GameTooltip:AddLine("Click Rescan Bars if the Cooldown Manager button was added after login.", 1, 0.5, 0.5, true)
         GameTooltip:Show()
     end)
     cdmFesteringCheck:SetScript("OnLeave", GameTooltip_Hide)
@@ -723,6 +810,7 @@ function addon:CreateConfigPanel(standalone)
     rescanBtn:SetScript("OnClick", function()
         addon:ScanAllButtons()
         addon:CreateCDMOverlays()
+        if addon.RefreshCDMTrackedItems then addon:RefreshCDMTrackedItems() end
     end)
 
     local testBtn = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
@@ -849,6 +937,10 @@ function addon:CreateConfigPanel(standalone)
         if testActive then
             if selectedKey == "festering" then
                 addon:TestFesteringGlow()
+            elseif selectedKey == "deathcoil" then
+                addon:TestSuddenDoomGlow("deathCoil")
+            elseif selectedKey == "epidemic" then
+                addon:TestSuddenDoomGlow("epidemic")
             elseif selectedKey == "putrefy" then
                 addon:TestPutrefyWarning()
             elseif selectedKey == "runic" then
@@ -906,6 +998,8 @@ function addon:CreateConfigPanel(standalone)
         UIDropDownMenu_Initialize(selectorDD, function()
             local items = {
                 {text = "Festering Scythe", value = "festering"},
+                {text = "Death Coil (Sudden Doom)", value = "deathcoil"},
+                {text = "Epidemic (Sudden Doom)", value = "epidemic"},
                 {text = "Putrefy",          value = "putrefy"},
                 {text = "Runic Power",      value = "runic"},
                 {text = "Death and Decay",  value = "dnd"},
@@ -927,6 +1021,8 @@ function addon:CreateConfigPanel(standalone)
             end
         end)
         local label = selectedKey == "festering" and "Festering Scythe"
+                  or selectedKey == "deathcoil" and "Death Coil (Sudden Doom)"
+                  or selectedKey == "epidemic" and "Epidemic (Sudden Doom)"
                   or selectedKey == "putrefy" and "Putrefy"
                   or selectedKey == "runic" and "Runic Power"
                   or selectedKey == "dnd" and "Death and Decay"
@@ -947,6 +1043,9 @@ function addon:CreateConfigPanel(standalone)
                 info.func = function()
                     GetSelectedGlowSettings().glowType = glowID
                     if selectedKey == "runic" then addon:UpdateRunicPowerGlow() end
+                    if selectedKey == "festering" and addon.RefreshFesteringGlowStyle then
+                        addon:RefreshFesteringGlowStyle()
+                    end
                     UIDropDownMenu_SetText(glowStyleDD, glowName)
                     UIDropDownMenu_SetSelectedValue(glowStyleDD, glowID)
                     UpdateSliderVisibility()
@@ -997,7 +1096,7 @@ function addon:CreateConfigPanel(standalone)
         addon:StopRunicBarGlowFor(previewRunicBar)
         HidePreviewCross()
 
-        if selectedKey == "festering" then
+        if selectedKey == "festering" or selectedKey == "deathcoil" or selectedKey == "epidemic" then
             local s = GetSelectedGlowSettings()
             if s.enabled then
                 local gt = addon:GetGlowTypeByID(s.glowType)
@@ -1054,10 +1153,26 @@ function addon:CreateConfigPanel(standalone)
             InitGlowStyleDD()
             glowSwatch.color:SetColorTexture(gs.color.r, gs.color.g, gs.color.b, 1)
             gsTiming.refresh()
+            gsGrace.refresh()
+            combatGlowCheck:SetChecked(gs.combatGlow ~= false)
             for _, s in ipairs(glowSliders) do s.refresh() end
             cdmFesteringCheck:SetChecked(DKAssistDB.trackCDMFestering or false)
-            festeringDesc:SetText("Glows your Festering Strike/Scythe button when the Festering Scythe buff is about to expire. Configure how many seconds before expiry the glow appears.")
+            festeringDesc:SetText("Glows Festering Strike/Scythe when the Festering Scythe buff is about to expire or is missing. Only glows in combat. Choose either your action bar or the Cooldown Manager below.")
             ShowFesteringSection()
+        elseif selectedKey == "deathcoil" or selectedKey == "epidemic" then
+            local s = GetSelectedGlowSettings()
+            local name = selectedKey == "deathcoil" and "Death Coil" or "Epidemic"
+            enableCheck.Text:SetText("Enable Sudden Doom glow")
+            enableCheck:SetChecked(s.enabled)
+            enableCheck:Show()
+            InitGlowStyleDD()
+            glowSwatch.color:SetColorTexture(s.color.r, s.color.g, s.color.b, 1)
+            for _, slider in ipairs(glowSliders) do slider.refresh() end
+            festeringDesc:SetText("Glows " .. name .. " when Sudden Doom procs. Choose either your action bar or the Cooldown Manager below.")
+            ShowFesteringSection()
+            gsTiming.container:Hide()
+            cdmFesteringCheck:SetChecked(DKAssistDB.trackCDMSuddenDoom or false)
+            cdmFesteringCheck:Show()
         elseif selectedKey == "runic" then
             enableCheck.Text:SetText("Enable Runic Power glow")
             enableCheck:SetChecked(rs.enabled)
@@ -1104,7 +1219,7 @@ function addon:CreateConfigPanel(standalone)
     -- -------------------------------------------------------
     panel:SetScript("OnShow", function(self)
         -- Keep selectedKey if returning from DnD test mode, otherwise default to festering
-        if selectedKey ~= "dnd" and selectedKey ~= "putrefy" and selectedKey ~= "soulreaper" and selectedKey ~= "runic" then
+        if selectedKey ~= "dnd" and selectedKey ~= "putrefy" and selectedKey ~= "soulreaper" and selectedKey ~= "runic" and selectedKey ~= "deathcoil" and selectedKey ~= "epidemic" then
             selectedKey = "festering"
         end
         self:RefreshControls()

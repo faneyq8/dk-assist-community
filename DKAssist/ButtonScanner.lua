@@ -152,6 +152,7 @@ function addon:ScanAllButtons()
     addon.trackedButtons = ScanActionBars()
     if addon.CreateFesteringOverlays then addon:CreateFesteringOverlays() end
     if addon.CreatePutrefyOverlays   then addon:CreatePutrefyOverlays()   end
+    if addon.CreateSuddenDoomOverlays then addon:CreateSuddenDoomOverlays() end
 end
 
 -- =========================

@@ -1,6 +1,12 @@
 local addonName, addon = ...
 
 local PUTREFY_SPELL_ID = 1247378
+local FESTERING_SCYTHE_SPELL_ID = 458128
+local FESTERING_STRIKE_SPELL_ID = 85948
+local DEATH_COIL_SPELL_ID = 47541
+local NECROTIC_COIL_SPELL_ID = 1242174
+local EPIDEMIC_SPELL_ID = 207317
+local GRAVEYARD_SPELL_ID = 383269
 local hooked = false
 
 local function GetCDMSpellID(item)
@@ -14,12 +20,62 @@ local function GetCDMSpellID(item)
 end
 
 local function RegisterItem(item)
-    if not DKAssistDB or not DKAssistDB.trackCDMPutrefy then return end
-    local ok, isPutrefy = pcall(function()
-        return GetCDMSpellID(item) == PUTREFY_SPELL_ID
+    if not DKAssistDB or (not DKAssistDB.trackCDMPutrefy and not DKAssistDB.trackCDMFestering and not DKAssistDB.trackCDMSuddenDoom) then return end
+    local ok, kind = pcall(function()
+        local spellID = GetCDMSpellID(item)
+        if DKAssistDB.trackCDMPutrefy and spellID == PUTREFY_SPELL_ID then
+            return "putrefy"
+        elseif DKAssistDB.trackCDMFestering
+            and (spellID == FESTERING_SCYTHE_SPELL_ID or spellID == FESTERING_STRIKE_SPELL_ID) then
+            return "festering"
+        elseif DKAssistDB.trackCDMSuddenDoom and (spellID == DEATH_COIL_SPELL_ID or spellID == NECROTIC_COIL_SPELL_ID) then
+            return "deathCoil"
+        elseif DKAssistDB.trackCDMSuddenDoom and (spellID == EPIDEMIC_SPELL_ID or spellID == GRAVEYARD_SPELL_ID) then
+            return "epidemic"
+        end
     end)
-    if ok and isPutrefy then
+    if not ok then return end
+
+    if kind == "putrefy" then
         addon:RegisterCDMPutrefyFrame(item)
+    elseif kind == "festering" then
+        addon:RegisterCDMFesteringFrame(item)
+    elseif kind == "deathCoil" or kind == "epidemic" then
+        addon:RegisterCDMSuddenDoomFrame(item, kind)
+    end
+end
+
+-- EllesmereUI's CDM keeps the live Blizzard items in an itemFramePool and
+-- exposes a canonical, cached spell ID helper.  Using it avoids reading
+-- protected icon/texture values and works for its customised CDM layout.
+local function RegisterEllesmereItem(item, euiCDM)
+    if not euiCDM or not euiCDM.GetCanonicalSpellIDForFrame then return end
+    local ok, kind = pcall(function()
+        -- Ellesmere stores the resolved spell on its external frame data.
+        -- Prefer that clean cached value; an active Blizzard CDM item can
+        -- return a secret value from GetSpellID() during combat.
+        local frameData = euiCDM._hookFrameData and euiCDM._hookFrameData[item]
+        local spellID = frameData and frameData.spellID
+            or euiCDM.GetCanonicalSpellIDForFrame(item)
+            or item.spellID or item.overrideSpellID
+        if DKAssistDB.trackCDMPutrefy and spellID == PUTREFY_SPELL_ID then
+            return "putrefy"
+        elseif DKAssistDB.trackCDMFestering
+            and (spellID == FESTERING_SCYTHE_SPELL_ID or spellID == FESTERING_STRIKE_SPELL_ID) then
+            return "festering"
+        elseif DKAssistDB.trackCDMSuddenDoom and (spellID == DEATH_COIL_SPELL_ID or spellID == NECROTIC_COIL_SPELL_ID) then
+            return "deathCoil"
+        elseif DKAssistDB.trackCDMSuddenDoom and (spellID == EPIDEMIC_SPELL_ID or spellID == GRAVEYARD_SPELL_ID) then
+            return "epidemic"
+        end
+    end)
+    if not ok then return end
+    if kind == "putrefy" then
+        addon:RegisterCDMPutrefyFrame(item)
+    elseif kind == "festering" then
+        addon:RegisterCDMFesteringFrame(item)
+    elseif kind == "deathCoil" or kind == "epidemic" then
+        addon:RegisterCDMSuddenDoomFrame(item, kind)
     end
 end
 
@@ -33,26 +89,59 @@ end
 -- Register those current items directly, then the RefreshData hook handles
 -- every later layout, talent, and cooldown update.
 local function RegisterExistingItems()
+    local euiCDM = EllesmereUI and EllesmereUI._ModuleNS
+        and EllesmereUI._ModuleNS["EllesmereUICooldownManager"]
     local viewers = {
         EssentialCooldownViewer,
         UtilityCooldownViewer,
         BuffIconCooldownViewer,
         BuffBarCooldownViewer,
     }
-    for _, viewer in ipairs(viewers) do
-        if viewer and viewer.GetItemFrames then
-            for _, item in ipairs(viewer:GetItemFrames()) do
-                RegisterItem(item)
+
+    -- EllesmereUI can re-anchor CDM icons into its own visible bars. Those
+    -- icons are the correct frames to decorate, not necessarily the hidden
+    -- Blizzard pool children beneath them.
+    if euiCDM and euiCDM.cdmBarIcons then
+        for _, icons in pairs(euiCDM.cdmBarIcons) do
+            for _, icon in ipairs(icons) do
+                RegisterEllesmereItem(icon, euiCDM)
             end
         end
     end
+
+    for _, viewer in ipairs(viewers) do
+        -- EllesmereUI (and current Blizzard CDM) keeps active items in this
+        -- pool rather than exposing GetItemFrames().
+        if viewer and viewer.itemFramePool and viewer.itemFramePool.EnumerateActive then
+            for item in viewer.itemFramePool:EnumerateActive() do
+                RegisterEllesmereItem(item, euiCDM)
+                RegisterItem(item)
+            end
+        end
+        if viewer and viewer.GetItemFrames then
+            local ok, items = pcall(viewer.GetItemFrames, viewer)
+            if ok and items then
+                for _, item in ipairs(items) do
+                    RegisterItem(item)
+                end
+            end
+        end
+    end
+end
+
+-- Used by the settings Rescan button.  It only asks Blizzard's Cooldown
+-- Manager for its known item frames; it never enumerates the whole UI.
+function addon:RefreshCDMTrackedItems()
+    RegisterExistingItems()
 end
 
 local loader = CreateFrame("Frame")
 loader:RegisterEvent("ADDON_LOADED")
 loader:RegisterEvent("PLAYER_LOGIN")
 loader:SetScript("OnEvent", function(_, event, loadedAddon)
-    if event == "ADDON_LOADED" and loadedAddon ~= "Blizzard_CooldownViewer" then return end
+    if event == "ADDON_LOADED"
+        and loadedAddon ~= "Blizzard_CooldownViewer"
+        and loadedAddon ~= "EllesmereUICooldownManager" then return end
     C_Timer.After(0, function()
         InstallHook()
         RegisterExistingItems()

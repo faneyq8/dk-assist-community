@@ -35,6 +35,10 @@ addon.SPELLS = {
         name = "Soul Reaper",
         key  = nil,
     },
+    DEATH_COIL = { id = 47541, name = "Death Coil", key = "deathCoil" },
+    NECROTIC_COIL = { id = 1242174, name = "Necrotic Coil", key = "deathCoil" },
+    EPIDEMIC = { id = 207317, name = "Epidemic", key = "epidemic" },
+    GRAVEYARD = { id = 383269, name = "Graveyard", key = "epidemic" },
 }
 
 addon.GLOW_TYPES = {
@@ -141,6 +145,10 @@ local DEFAULT_GLOW_SETTINGS = {
     scale      = 1.0,
     border     = false,
     glowTiming = 5,
+    -- When entering combat without the Festering Scythe buff, remind the
+    -- player after this optional grace period.
+    combatGlow  = true,
+    combatGrace = 0,
 }
 
 local DEFAULT_PUTREFY_SETTINGS = {
@@ -160,6 +168,7 @@ addon.DEFAULT_DB = {
     seenWelcome       = false,
     trackCDMFestering = false,
     trackCDMPutrefy   = false,
+    trackCDMSuddenDoom = false,
     runicPowerWarning = true,
     runicPower = {
         enabled = true,
@@ -173,6 +182,8 @@ addon.DEFAULT_DB = {
     },
     spells = {
         festeringScythe = CopyTable(DEFAULT_GLOW_SETTINGS),
+        deathCoil       = CopyTable(DEFAULT_GLOW_SETTINGS),
+        epidemic        = CopyTable(DEFAULT_GLOW_SETTINGS),
     },
     putrefy = CopyTable(DEFAULT_PUTREFY_SETTINGS),
     dnd = {
@@ -195,16 +206,19 @@ local festeringOverlays    = {}
 local putrefyOverlays      = {}
 local cdmFesteringOverlays = {}
 local cdmPutrefyOverlays   = {}
+local suddenDoomOverlays   = {}
+local cdmSuddenDoomOverlays = {}
+local suddenDoomActive = false
 local putrefyWarningActive = false
 
 local function CreateOverlay(targetFrame, spellKey)
+    -- Keep the direct-child arrangement used by the original effects, but
+    -- inherit the target's strata.  A fixed HIGH strata made the glow draw on
+    -- top of the map, bags and other Blizzard panels.
     local overlay = CreateFrame("Frame", nil, targetFrame)
-    -- Keep the overlay in the target button's draw layer.  A fixed HIGH
-    -- strata lets the cross paint over maps, dialogs, and other addons even
-    -- though the button itself is behind those windows.
     overlay:SetFrameStrata(targetFrame:GetFrameStrata())
     overlay:SetAllPoints(targetFrame)
-    overlay:SetFrameLevel(targetFrame:GetFrameLevel() + 1)
+    overlay:SetFrameLevel(targetFrame:GetFrameLevel() + 10)
     overlay._targetFrame = targetFrame
     overlay._spellKey    = spellKey
     overlay._glowActive  = false
@@ -220,6 +234,109 @@ local function AttachCrossToOverlay(overlay)
     local v = overlay:CreateTexture(nil, "OVERLAY")
     v:SetColorTexture(1, 0, 0, 0.9)
     overlay._crossV = v
+end
+
+-- Festering uses a self-contained border effect rather than a library glow.
+-- This stays visible on custom Cooldown Manager buttons (including
+-- EllesmereUI) where external glow libraries can be clipped or hidden.
+local function StartFesteringBorder(overlay, settings)
+    if not overlay._festeringBorder then
+        local border = {}
+        border.top = overlay:CreateTexture(nil, "OVERLAY", nil, 7)
+        border.bottom = overlay:CreateTexture(nil, "OVERLAY", nil, 7)
+        border.left = overlay:CreateTexture(nil, "OVERLAY", nil, 7)
+        border.right = overlay:CreateTexture(nil, "OVERLAY", nil, 7)
+        border.art = overlay:CreateTexture(nil, "OVERLAY", nil, 6)
+        border.sparks = {}
+        for i = 1, 8 do
+            -- WoW permits draw sublevels only from -8 through 7.
+            border.sparks[i] = overlay:CreateTexture(nil, "OVERLAY", nil, 7)
+        end
+        overlay._festeringBorder = border
+
+        overlay._festeringPulse = overlay:CreateAnimationGroup()
+        overlay._festeringPulse:SetLooping("BOUNCE")
+        local pulse = overlay._festeringPulse:CreateAnimation("Alpha")
+        pulse:SetOrder(1)
+        overlay._festeringPulseAlpha = pulse
+
+        -- The Autocast artwork has its own scale animation.  Keeping it on
+        -- the texture (rather than the target button) makes it work safely
+        -- on Blizzard and custom Cooldown Manager frames.
+        border.artPulse = border.art:CreateAnimationGroup()
+        border.artPulse:SetLooping("BOUNCE")
+        local artScale = border.artPulse:CreateAnimation("Scale")
+        artScale:SetOrder(1)
+        artScale:SetOrigin("CENTER", 0, 0)
+        border.artPulseScale = artScale
+    end
+
+    local c = settings.color or { r = 0, g = 0.9, b = 0.2 }
+    local alpha = settings.alpha or 1
+    local thickness = math.max(2, settings.thickness or 2)
+    local pad = math.max(2, math.floor(thickness * 1.5))
+    local border = overlay._festeringBorder
+    local edges = { border.top, border.bottom, border.left, border.right }
+    local style = settings.glowType or "pixel"
+
+    for _, edge in ipairs(edges) do
+        edge:SetColorTexture(c.r, c.g, c.b, alpha)
+        edge:Hide()
+    end
+    border.art:Hide()
+    border.artPulse:Stop()
+    for _, spark in ipairs(border.sparks) do spark:Hide() end
+    border.top:ClearAllPoints()
+    border.top:SetPoint("TOPLEFT", overlay, "TOPLEFT", -pad, pad)
+    border.top:SetPoint("TOPRIGHT", overlay, "TOPRIGHT", pad, pad)
+    border.top:SetHeight(thickness)
+    border.bottom:ClearAllPoints()
+    border.bottom:SetPoint("BOTTOMLEFT", overlay, "BOTTOMLEFT", -pad, -pad)
+    border.bottom:SetPoint("BOTTOMRIGHT", overlay, "BOTTOMRIGHT", pad, -pad)
+    border.bottom:SetHeight(thickness)
+    border.left:ClearAllPoints()
+    border.left:SetPoint("TOPLEFT", overlay, "TOPLEFT", -pad, pad)
+    border.left:SetPoint("BOTTOMLEFT", overlay, "BOTTOMLEFT", -pad, -pad)
+    border.left:SetWidth(thickness)
+    border.right:ClearAllPoints()
+    border.right:SetPoint("TOPRIGHT", overlay, "TOPRIGHT", pad, pad)
+    border.right:SetPoint("BOTTOMRIGHT", overlay, "BOTTOMRIGHT", pad, -pad)
+    border.right:SetWidth(thickness)
+
+    -- Classic DK Assist effect: a clear pulsing perimeter drawn directly on
+    -- the button.  It is the proven version for Blizzard CDM and EllesmereUI;
+    -- the experimental external artwork was too subtle on several UI packs.
+    for _, edge in ipairs(edges) do edge:Show() end
+
+    local pulse = overlay._festeringPulseAlpha
+    pulse:SetDuration(math.max(0.15, settings.speed or 0.25))
+    pulse:SetFromAlpha(math.max(0.25, alpha * 0.35))
+    pulse:SetToAlpha(alpha)
+    overlay:SetAlpha(alpha)
+    overlay._festeringPulse:Stop()
+    overlay._festeringPulse:Play()
+    overlay._customFesteringActive = true
+end
+
+local function StopFesteringBorder(overlay)
+    if not overlay._customFesteringActive then return end
+    if overlay._festeringPulse then overlay._festeringPulse:Stop() end
+    if overlay._festeringBorder then
+        local border = overlay._festeringBorder
+        -- `sparks` is a table, not a texture.  Hide each layer explicitly;
+        -- iterating the whole border table tried to call :Hide() on that
+        -- table and could stop the effect after its first use.
+        for _, edge in ipairs({ border.top, border.bottom, border.left, border.right }) do
+            edge:Hide()
+        end
+        if border.art then border.art:Hide() end
+        if border.artPulse then border.artPulse:Stop() end
+        if border.sparks then
+            for _, spark in ipairs(border.sparks) do spark:Hide() end
+        end
+    end
+    overlay:SetAlpha(1)
+    overlay._customFesteringActive = false
 end
 
 local function UpdateCrossAppearance(overlay)
@@ -257,6 +374,7 @@ end
 
 function addon:CreateFesteringOverlays()
     for _, overlay in pairs(festeringOverlays) do
+        StopFesteringBorder(overlay)
         if overlay._glowActive then
             local gt = self:GetGlowTypeByID(DKAssistDB.spells.festeringScythe.glowType)
             if gt and gt.stop then pcall(gt.stop, overlay) end
@@ -266,6 +384,10 @@ function addon:CreateFesteringOverlays()
     end
     wipe(festeringOverlays)
 
+    -- Use one target at a time.  When the Cooldown Manager option is on,
+    -- Festering is intentionally tracked there instead of on action bars.
+    if DKAssistDB.trackCDMFestering then return end
+
     for spellKey, buttons in pairs(addon.trackedButtons or {}) do
         if spellKey == "festeringScythe" then
             for _, button in ipairs(buttons) do
@@ -273,6 +395,58 @@ function addon:CreateFesteringOverlays()
             end
         end
     end
+end
+
+function addon:CreateSuddenDoomOverlays()
+    for _, overlay in pairs(suddenDoomOverlays) do
+        if overlay._glowActive then
+            local s = DKAssistDB.spells[overlay._spellKey]
+            local gt = s and addon:GetGlowTypeByID(s.glowType)
+            if gt and gt.stop then pcall(gt.stop, overlay) end
+        end
+        overlay:Hide()
+        overlay:SetParent(nil)
+    end
+    wipe(suddenDoomOverlays)
+
+    if DKAssistDB.trackCDMSuddenDoom then return end
+
+    for spellKey, buttons in pairs(addon.trackedButtons or {}) do
+        if spellKey == "deathCoil" or spellKey == "epidemic" then
+            for _, button in ipairs(buttons) do
+                suddenDoomOverlays[button] = CreateOverlay(button, spellKey)
+            end
+        end
+    end
+end
+
+function addon:RegisterCDMSuddenDoomFrame(frame, spellKey)
+    if not DKAssistDB.trackCDMSuddenDoom or cdmSuddenDoomOverlays[frame] then return end
+    local overlay = CreateOverlay(frame, spellKey)
+    cdmSuddenDoomOverlays[frame] = overlay
+    if suddenDoomActive then addon:ShowSuddenDoomGlows() end
+end
+
+function addon:ClearCDMSuddenDoomOverlays()
+    for _, overlay in pairs(cdmSuddenDoomOverlays) do
+        if overlay._glowActive then
+            local s = DKAssistDB.spells[overlay._spellKey]
+            local gt = s and addon:GetGlowTypeByID(s.glowType)
+            if gt and gt.stop then pcall(gt.stop, overlay) end
+        end
+        overlay:Hide()
+        overlay:SetParent(nil)
+    end
+    wipe(cdmSuddenDoomOverlays)
+end
+
+-- Called by CDMHook.lua after Blizzard refreshes a specific Cooldown Manager
+-- item.  This avoids walking arbitrary UI frames (which taints in 12.1).
+function addon:RegisterCDMFesteringFrame(frame)
+    if not DKAssistDB.trackCDMFestering or cdmFesteringOverlays[frame] then return end
+    local overlay = CreateOverlay(frame, "festeringScythe")
+    cdmFesteringOverlays[frame] = overlay
+    addon:RefreshFesteringGlows()
 end
 
 function addon:CreatePutrefyOverlays()
@@ -503,15 +677,28 @@ local function StartSafeCDMScan(reset)
     return 0
 end
 
-function addon:CreateCDMOverlays() return StartSafeCDMScan(true) end
-function addon:CreateCDMOverlaysAdditive() return StartSafeCDMScan(false) end
+-- Keep the public rescan functions used by the settings button, slash command,
+-- and retry loop. CDMHook owns discovery through Blizzard's item API.
+function addon:CreateCDMOverlays()
+    if addon.RefreshCDMTrackedItems then addon:RefreshCDMTrackedItems() end
+    return 0
+end
 
+function addon:CreateCDMOverlaysAdditive()
+    if addon.RefreshCDMTrackedItems then addon:RefreshCDMTrackedItems() end
+    return 0
+end
+
+local FESTERING_BUFF_DURATION = 25
 local festeringTimer      = nil
+local festeringGraceTimer = nil
 local festeringGlowActive = false
+local festeringSuppressed = false
 
 local function HideFesteringGlow()
     festeringGlowActive = false
     local function hideOverlay(overlay)
+        StopFesteringBorder(overlay)
         if overlay._glowActive then
             local gt = addon:GetGlowTypeByID(DKAssistDB.spells.festeringScythe.glowType)
             if gt and gt.stop then pcall(gt.stop, overlay) end
@@ -523,18 +710,28 @@ local function HideFesteringGlow()
     for _, overlay in pairs(cdmFesteringOverlays) do hideOverlay(overlay) end
 end
 
+local function CancelFesteringGrace()
+    if festeringGraceTimer then
+        festeringGraceTimer:Cancel()
+        festeringGraceTimer = nil
+    end
+end
+
 local function StopFesteringGlow()
     if festeringTimer then
         festeringTimer:Cancel()
         festeringTimer = nil
     end
+    CancelFesteringGrace()
+    festeringSuppressed = false
     HideFesteringGlow()
 end
 
 local function ShowFesteringGlow()
     festeringGlowActive = true
     local settings = DKAssistDB.spells.festeringScythe
-    if not settings.enabled then return end
+    if not settings.enabled then return 0 end
+    local applied = 0
 
     local function applyGlow(overlay)
         local target = overlay._targetFrame
@@ -544,17 +741,39 @@ local function ShowFesteringGlow()
         if target and target:IsVisible() then
             overlay:Show()
             if not overlay._glowActive then
-                local gt = addon:GetGlowTypeByID(settings.glowType)
-                if gt and gt.start then
-                    gt.start(overlay, settings)
-                    overlay._glowActive = true
+                -- Original DK Assist effects: Pixel Glow, Autocast Shine,
+                -- Button Glow and Proc Border from LibCustomGlow.
+                local glowType = addon:GetGlowTypeByID(settings.glowType)
+                if glowType and glowType.start then
+                    local ok = pcall(glowType.start, overlay, settings)
+                    if ok then overlay._glowActive = true end
                 end
             end
+            applied = applied + 1
         end
     end
 
-    for _, overlay in pairs(festeringOverlays)    do applyGlow(overlay) end
-    for _, overlay in pairs(cdmFesteringOverlays) do applyGlow(overlay) end
+    if DKAssistDB.trackCDMFestering then
+        for _, overlay in pairs(cdmFesteringOverlays) do applyGlow(overlay) end
+    else
+        for _, overlay in pairs(festeringOverlays) do applyGlow(overlay) end
+    end
+    return applied
+end
+
+-- Called by the options dropdown.  If a Festering test or warning is already
+-- visible, redraw it immediately with the newly selected direct-overlay style.
+function addon:RefreshFesteringGlowStyle()
+    if not festeringGlowActive then return end
+    for _, overlay in pairs(festeringOverlays) do
+        StopFesteringBorder(overlay)
+        overlay._glowActive = false
+    end
+    for _, overlay in pairs(cdmFesteringOverlays) do
+        StopFesteringBorder(overlay)
+        overlay._glowActive = false
+    end
+    ShowFesteringGlow()
 end
 
 local function StartFesteringTimer()
@@ -562,21 +781,65 @@ local function StartFesteringTimer()
         festeringTimer:Cancel()
         festeringTimer = nil
     end
+    CancelFesteringGrace()
     HideFesteringGlow()
 
     local settings = DKAssistDB.spells.festeringScythe
     if not settings.enabled then return end
 
     local timing = settings.glowTiming or 5
-    local delay  = math.max(1, 25 - timing)
+    local delay  = math.max(1, FESTERING_BUFF_DURATION - timing)
+    festeringSuppressed = true
     festeringTimer = C_Timer.NewTimer(delay, function()
         festeringTimer = nil
-        ShowFesteringGlow()
+        festeringSuppressed = false
+        -- The buff keeps expiring out of combat, but the visual reminder is
+        -- deliberately shown only during combat.
+        if InCombatLockdown() then ShowFesteringGlow() end
     end)
 end
 
 function addon:OnFesteringScytheCast()
+    -- The 25-second Festering Scythe buff has been refreshed.  Hide the
+    -- warning until it is close to expiring again.
     StartFesteringTimer()
+end
+
+function addon:OnFesteringStrikeCast()
+    -- The transformed button may be rebuilt by the Cooldown Manager. Refresh
+    -- the registration, but do not glow it immediately: Festering Scythe is
+    -- an expiry/missing-buff reminder, not a conversion-ready reminder.
+    C_Timer.After(0.05, function()
+        if addon.RefreshCDMTrackedItems then addon:RefreshCDMTrackedItems() end
+    end)
+end
+
+local function OnFesteringCombatEnd()
+    CancelFesteringGrace()
+    HideFesteringGlow()
+end
+
+local function OnFesteringCombatStart()
+    if festeringSuppressed then return end
+    CancelFesteringGrace()
+    local settings = DKAssistDB.spells.festeringScythe
+    if not settings.enabled or settings.combatGlow == false then return end
+
+    local grace = settings.combatGrace or 0
+    if grace <= 0 then
+        ShowFesteringGlow()
+        return
+    end
+    festeringGraceTimer = C_Timer.NewTimer(grace, function()
+        festeringGraceTimer = nil
+        if not festeringSuppressed and InCombatLockdown() then
+            ShowFesteringGlow()
+        end
+    end)
+end
+
+function addon:CancelFesteringCombatGlow()
+    CancelFesteringGrace()
 end
 
 function addon:RefreshFesteringGlows()
@@ -728,7 +991,81 @@ function addon:RefreshPutrefyWarnings()
 end
 
 function addon:TestFesteringGlow()
-    ShowFesteringGlow()
+    local count = ShowFesteringGlow()
+    if count == 0 then
+        local target = DKAssistDB.trackCDMFestering and "Cooldown Manager" or "action bars"
+        print("|cffcc0000DK Assist:|r No visible Festering Scythe button found on " .. target .. ". Reload UI, then use Rescan Bars.")
+    else
+        print("|cffcc0000DK Assist:|r Festering Scythe test glow applied to " .. count .. " button(s).")
+    end
+    return count
+end
+
+function addon:IsSuddenDoomActive()
+    local costs = C_Spell.GetSpellPowerCost(addon.SPELLS.DEATH_COIL.id)
+    if not costs then return false end
+    for _, cost in ipairs(costs) do
+        if cost.type == Enum.PowerType.RunicPower and cost.cost == 15 then
+            return true
+        end
+    end
+    return false
+end
+
+function addon:StopSuddenDoomGlows()
+    suddenDoomActive = false
+    local overlays = DKAssistDB.trackCDMSuddenDoom and cdmSuddenDoomOverlays or suddenDoomOverlays
+    for _, overlay in pairs(overlays) do
+        if overlay._glowActive then
+            local s = DKAssistDB.spells[overlay._spellKey]
+            local gt = s and addon:GetGlowTypeByID(s.glowType)
+            if gt and gt.stop then pcall(gt.stop, overlay) end
+            overlay._glowActive = false
+        end
+        overlay:Hide()
+    end
+end
+
+function addon:ShowSuddenDoomGlows()
+    suddenDoomActive = true
+    local overlays = DKAssistDB.trackCDMSuddenDoom and cdmSuddenDoomOverlays or suddenDoomOverlays
+    for _, overlay in pairs(overlays) do
+        local target = overlay._targetFrame
+        local s = DKAssistDB.spells[overlay._spellKey]
+        if target and target:IsVisible() and s and s.enabled then
+            overlay:Show()
+            if not overlay._glowActive then
+                local gt = addon:GetGlowTypeByID(s.glowType)
+                if gt and gt.start then
+                    local ok = pcall(gt.start, overlay, s)
+                    if ok then overlay._glowActive = true end
+                end
+            end
+        end
+    end
+end
+
+function addon:RefreshSuddenDoomGlows()
+    if suddenDoomActive then
+        addon:StopSuddenDoomGlows()
+        if addon:IsSuddenDoomActive() then addon:ShowSuddenDoomGlows() end
+    end
+end
+
+function addon:TestSuddenDoomGlow(spellKey)
+    local shown = 0
+    local overlays = DKAssistDB.trackCDMSuddenDoom and cdmSuddenDoomOverlays or suddenDoomOverlays
+    for _, overlay in pairs(overlays) do
+        if overlay._spellKey == spellKey and overlay._targetFrame and overlay._targetFrame:IsVisible() then
+            local s = DKAssistDB.spells[spellKey]
+            overlay:Show()
+            local gt = addon:GetGlowTypeByID(s.glowType)
+            if gt and gt.start then pcall(gt.start, overlay, s) end
+            overlay._glowActive = true
+            shown = shown + 1
+        end
+    end
+    return shown
 end
 
 function addon:TestPutrefyWarning()
@@ -738,6 +1075,7 @@ end
 function addon:StopAll()
     StopFesteringGlow()
     StopPutrefyWarning()
+    addon:StopSuddenDoomGlows()
 end
 
 -- -------------------------------------------------------
@@ -990,11 +1328,14 @@ end
 local castFrame = CreateFrame("Frame")
 castFrame:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED")
 castFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
+castFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
 
 castFrame:SetScript("OnEvent", function(_, event, unit, _, spellID)
     if event == "UNIT_SPELLCAST_SUCCEEDED" then
         if unit ~= "player" then return end
-        if spellID == addon.SPELLS.FESTERING_SCYTHE.id then
+        if spellID == addon.SPELLS.FESTERING_STRIKE.id then
+            addon:OnFesteringStrikeCast()
+        elseif spellID == addon.SPELLS.FESTERING_SCYTHE.id then
             addon:OnFesteringScytheCast()
         elseif spellID == addon.SPELLS.DARK_TRANSFORMATION.id then
             addon:OnDarkTransformationCast()
@@ -1004,8 +1345,30 @@ castFrame:SetScript("OnEvent", function(_, event, unit, _, spellID)
             addon:OnDeathAndDecayCast()
         end
     elseif event == "PLAYER_REGEN_ENABLED" then
-        addon:StopAll()
+        -- Do not call StopAll here: it cancels the Festering Scythe expiry
+        -- timer, even though that buff continues ticking out of combat.
+        StopPutrefyWarning()
+        addon:StopSuddenDoomGlows()
+        OnFesteringCombatEnd()
         addon:ShowPutrefyHoldWarning()
+    elseif event == "PLAYER_REGEN_DISABLED" then
+        OnFesteringCombatStart()
+    end
+end)
+
+-- Sudden Doom changes Death Coil's Runic Power cost.  Check only ten times
+-- per second and update glows only when that state changes.
+local suddenDoomWatcher = CreateFrame("Frame")
+local suddenDoomElapsed = 0
+suddenDoomWatcher:SetScript("OnUpdate", function(_, elapsed)
+    suddenDoomElapsed = suddenDoomElapsed + elapsed
+    if suddenDoomElapsed < 0.10 then return end
+    suddenDoomElapsed = 0
+    local active = addon:IsSuddenDoomActive()
+    if active and not suddenDoomActive then
+        addon:ShowSuddenDoomGlows()
+    elseif not active and suddenDoomActive then
+        addon:StopSuddenDoomGlows()
     end
 end)
 
@@ -1093,6 +1456,17 @@ initFrame:SetScript("OnEvent", function(_, event)
                 end
             end
         end
+        for _, spellKey in ipairs({ "deathCoil", "epidemic" }) do
+            if not DKAssistDB.spells[spellKey] then
+                DKAssistDB.spells[spellKey] = CopyTable(addon.DEFAULT_DB.spells[spellKey])
+            else
+                for k, v in pairs(addon.DEFAULT_DB.spells[spellKey]) do
+                    if DKAssistDB.spells[spellKey][k] == nil then
+                        DKAssistDB.spells[spellKey][k] = v
+                    end
+                end
+            end
+        end
         if not DKAssistDB.putrefy then
             DKAssistDB.putrefy = CopyTable(addon.DEFAULT_DB.putrefy)
         else
@@ -1102,6 +1476,7 @@ initFrame:SetScript("OnEvent", function(_, event)
         end
         if DKAssistDB.trackCDMFestering == nil then DKAssistDB.trackCDMFestering = false end
         if DKAssistDB.trackCDMPutrefy   == nil then DKAssistDB.trackCDMPutrefy   = false end
+        if DKAssistDB.trackCDMSuddenDoom == nil then DKAssistDB.trackCDMSuddenDoom = false end
         if DKAssistDB.runicPowerWarning == nil then DKAssistDB.runicPowerWarning = true end
         if not DKAssistDB.runicPower then
             DKAssistDB.runicPower = CopyTable(addon.DEFAULT_DB.runicPower)
