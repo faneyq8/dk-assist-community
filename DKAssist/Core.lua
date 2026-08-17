@@ -187,6 +187,10 @@ addon.DEFAULT_DB = {
         deathCoil       = CopyTable(DEFAULT_GLOW_SETTINGS),
         epidemic        = CopyTable(DEFAULT_GLOW_SETTINGS),
     },
+    -- This is the separate style for the Sudden Doom proc icon when it is
+    -- tracked in the Cooldown Manager.  It must not share colors with either
+    -- Death Coil or Epidemic action-bar glows.
+    suddenDoomGlow = CopyTable(DEFAULT_GLOW_SETTINGS),
     putrefy = CopyTable(DEFAULT_PUTREFY_SETTINGS),
     dnd = {
         enabled    = true,
@@ -200,6 +204,199 @@ addon.DEFAULT_DB = {
     },
 }
 
+-- Text alerts deliberately use the same state DK Assist already calculates
+-- for its glows.  This avoids DKQoL's old spell-cost polling approach, which
+-- can receive secret values in 12.1.
+local function DefaultTextAlert(text, color)
+    return {
+        enabled = false,
+        text = text,
+        expiredWarning = false,
+        secondsLeft = 5,
+        fontSize = 28,
+        font = "Fonts\\FRIZQT__.TTF",
+        outline = "OUTLINE",
+        color = color or { r = 1.00, g = 0.82, b = 0.10 },
+        locked = false,
+        point = nil,
+    }
+end
+addon.DEFAULT_DB.spells.festeringScythe.textAlert = DefaultTextAlert("FESTERING SCYTHE", { r = 1.00, g = 1.00, b = 1.00 })
+addon.DEFAULT_DB.spells.deathCoil.textAlert = DefaultTextAlert("SUDDEN DOOM - DEATH COIL")
+addon.DEFAULT_DB.spells.epidemic.textAlert = DefaultTextAlert("SUDDEN DOOM - EPIDEMIC")
+addon.DEFAULT_DB.suddenDoomTextAlert = DefaultTextAlert("SUDDEN DOOM", { r = 0.00, g = 0.90, b = 0.20 })
+
+local REMOVED_TEXT_FONTS = {
+    ["Fonts\\2002B.TTF"] = true,
+    ["Fonts\\BLEIWEIS.TTF"] = true,
+    ["Fonts\\K_Pagetext.TTF"] = true,
+}
+
+local function NormalizeTextAlertFont(settings)
+    if settings and REMOVED_TEXT_FONTS[settings.font] then
+        settings.font = STANDARD_TEXT_FONT
+    end
+end
+
+local textAlertFrames = {}
+local textAlertTimers = {}
+local festeringTextTicker = nil
+local festeringTextEndTime = nil
+
+local function GetTextAlertSettings(key)
+    if key == "suddenDoom" then return DKAssistDB and DKAssistDB.suddenDoomTextAlert end
+    return DKAssistDB and DKAssistDB.spells and DKAssistDB.spells[key] and DKAssistDB.spells[key].textAlert
+end
+
+local function EnsureTextAlertFrame(key)
+    if textAlertFrames[key] then return textAlertFrames[key] end
+    local frame = CreateFrame("Frame", "DKAssistTextAlert" .. key, UIParent, "BackdropTemplate")
+    frame:SetSize(280, 48)
+    frame:SetFrameStrata("HIGH")
+    frame:SetClampedToScreen(true)
+    frame:SetMovable(true)
+    frame:EnableMouse(true)
+    frame:RegisterForDrag("LeftButton")
+    frame:SetScript("OnDragStart", function(self)
+        local settings = GetTextAlertSettings(key)
+        if settings and not settings.locked then self:StartMoving() end
+    end)
+    frame:SetScript("OnDragStop", function(self)
+        self:StopMovingOrSizing()
+        local settings = GetTextAlertSettings(key)
+        if settings then
+            local point, _, relativePoint, x, y = self:GetPoint()
+            settings.point = { point, relativePoint, x, y }
+        end
+    end)
+    frame.text = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    frame.text:SetPoint("TOP", frame, "TOP", 0, -2)
+    frame.text:SetJustifyH("CENTER")
+    frame.text:SetJustifyV("MIDDLE")
+    frame.timerText = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    frame.timerText:SetPoint("TOP", frame.text, "BOTTOM", 0, -4)
+    frame.timerText:SetJustifyH("CENTER")
+    frame.timerText:SetJustifyV("MIDDLE")
+    frame:Hide()
+    textAlertFrames[key] = frame
+    return frame
+end
+
+function addon:RefreshTextAlert(key)
+    local settings = GetTextAlertSettings(key)
+    if not settings then return end
+    local frame = EnsureTextAlertFrame(key)
+    frame:ClearAllPoints()
+    if settings.point then
+        frame:SetPoint(settings.point[1], UIParent, settings.point[2], settings.point[3], settings.point[4])
+    else
+        local offset = key == "festeringScythe" and 145 or 100
+        frame:SetPoint("CENTER", UIParent, "CENTER", 0, offset)
+    end
+    frame.text:SetText(settings.text or "DK ASSIST")
+    local font = settings.font or STANDARD_TEXT_FONT
+    local fontSize = settings.fontSize or 28
+    local outline = settings.outline or "OUTLINE"
+    if not frame.text:SetFont(font, fontSize, outline) then
+        settings.font = STANDARD_TEXT_FONT
+        font = STANDARD_TEXT_FONT
+        frame.text:SetFont(font, fontSize, outline)
+    end
+    frame.timerText:SetFont(font, math.max(14, fontSize - 4), outline)
+    local c = settings.color or { r = 1, g = 0.82, b = 0.1 }
+    frame.text:SetTextColor(c.r, c.g, c.b, 1)
+    local width = math.max(280, frame.text:GetStringWidth() + 32, frame.timerText:GetStringWidth() + 32)
+    frame:SetSize(width, key == "festeringScythe" and (fontSize * 2 + 18) or (fontSize + 20))
+    frame.timerText:SetShown(key == "festeringScythe" and frame.timerText:GetText() ~= "")
+    frame:SetShown(settings.enabled and frame._dkAssistWanted)
+end
+
+local function StopFesteringTextTicker()
+    if festeringTextTicker then
+        festeringTextTicker:Cancel()
+        festeringTextTicker = nil
+    end
+end
+
+local function UpdateFesteringTextCountdown()
+    local frame = EnsureTextAlertFrame("festeringScythe")
+    if not festeringTextEndTime then
+        frame.timerText:SetText("")
+        return
+    end
+    local remaining = math.max(0, festeringTextEndTime - GetTime())
+    if remaining <= 0 then
+        local settings = GetTextAlertSettings("festeringScythe")
+        if settings and settings.expiredWarning then
+            frame.text:SetText(settings.text or "FESTERING SCYTHE")
+            frame.timerText:SetText("EXPIRED")
+            frame.timerText:SetTextColor(1.0, 0.2, 0.2, 1)
+        else
+            frame._dkAssistWanted = false
+            frame:Hide()
+        end
+        StopFesteringTextTicker()
+    else
+        local r, g, b
+        if remaining > 5 then r, g, b = 0.2, 1.0, 0.2
+        elseif remaining > 2 then r, g, b = 1.0, 0.78, 0.0
+        else r, g, b = 1.0, 0.2, 0.2 end
+        frame.timerText:SetTextColor(r, g, b, 1)
+        frame.timerText:SetText(string.format("%.1fs", remaining))
+    end
+end
+
+local function StartFesteringTextTicker()
+    StopFesteringTextTicker()
+    UpdateFesteringTextCountdown()
+    festeringTextTicker = C_Timer.NewTicker(0.05, UpdateFesteringTextCountdown)
+end
+
+function addon:SetTextAlertVisible(key, visible)
+    local settings = GetTextAlertSettings(key)
+    if not settings then return end
+    local frame = EnsureTextAlertFrame(key)
+    frame._dkAssistWanted = visible and true or false
+    if key == "festeringScythe" then
+        if visible and festeringTextEndTime then
+            StartFesteringTextTicker()
+        elseif not visible then
+            StopFesteringTextTicker()
+        end
+    end
+    addon:RefreshTextAlert(key)
+end
+
+function addon:TestTextAlert(key)
+    local settings = GetTextAlertSettings(key)
+    if not settings then return end
+    if textAlertTimers[key] then textAlertTimers[key]:Cancel() end
+    if key == "festeringScythe" then festeringTextEndTime = GetTime() + 5 end
+    addon:SetTextAlertVisible(key, true)
+    textAlertTimers[key] = C_Timer.NewTimer(5, function()
+        textAlertTimers[key] = nil
+        addon:SetTextAlertVisible(key, false)
+    end)
+end
+
+function addon:ShowTemporaryTextAlert(key, text, duration)
+    local settings = GetTextAlertSettings(key)
+    if not settings then return end
+    if textAlertTimers[key] then textAlertTimers[key]:Cancel() end
+    addon:SetTextAlertVisible(key, true)
+    local frame = EnsureTextAlertFrame(key)
+    frame.text:SetText(text)
+    if key == "festeringScythe" then
+        StopFesteringTextTicker()
+        frame.timerText:SetText("EXPIRED")
+        frame.timerText:SetTextColor(1.0, 0.2, 0.2, 1)
+    end
+    textAlertTimers[key] = C_Timer.NewTimer(duration or 3, function()
+        textAlertTimers[key] = nil
+        addon:SetTextAlertVisible(key, false)
+    end)
+end
+
 function addon:GetGlowTypeByID(id)
     return addon.GLOW_TYPE_MAP[id] or addon.GLOW_TYPES[1]
 end
@@ -212,6 +409,11 @@ local suddenDoomOverlays   = {}
 local cdmSuddenDoomOverlays = {}
 local suddenDoomActive = false
 local putrefyWarningActive = false
+
+local function GetSuddenDoomOverlaySettings(overlay)
+    if DKAssistDB.trackCDMSuddenDoom then return DKAssistDB.suddenDoomGlow end
+    return DKAssistDB.spells[overlay._spellKey]
+end
 
 local function CreateOverlay(targetFrame, spellKey)
     -- Keep the direct-child arrangement used by the original effects, but
@@ -402,7 +604,7 @@ end
 function addon:CreateSuddenDoomOverlays()
     for _, overlay in pairs(suddenDoomOverlays) do
         if overlay._glowActive then
-            local s = DKAssistDB.spells[overlay._spellKey]
+            local s = GetSuddenDoomOverlaySettings(overlay)
             local gt = s and addon:GetGlowTypeByID(s.glowType)
             if gt and gt.stop then pcall(gt.stop, overlay) end
         end
@@ -432,7 +634,7 @@ end
 function addon:ClearCDMSuddenDoomOverlays()
     for _, overlay in pairs(cdmSuddenDoomOverlays) do
         if overlay._glowActive then
-            local s = DKAssistDB.spells[overlay._spellKey]
+            local s = GetSuddenDoomOverlaySettings(overlay)
             local gt = s and addon:GetGlowTypeByID(s.glowType)
             if gt and gt.stop then pcall(gt.stop, overlay) end
         end
@@ -555,7 +757,7 @@ function addon:CreateCDMOverlays()
     end
 end
 
--- Additive CDM overlay creation — only creates overlays for frames not already tracked
+-- Additive CDM overlay creation â€” only creates overlays for frames not already tracked
 -- Called by ScanCDMSafe() to avoid disrupting active glows
 function addon:CreateCDMOverlaysAdditive()
     if not DKAssistDB.trackCDMFestering and not DKAssistDB.trackCDMPutrefy then return 0 end
@@ -694,6 +896,7 @@ end
 local FESTERING_BUFF_DURATION = 25
 local festeringTimer      = nil
 local festeringGraceTimer = nil
+local festeringExpiredTimer = nil
 local festeringGlowActive = false
 local festeringSuppressed = false
 local festeringReasons = { expiry = false, ghoul = false }
@@ -725,11 +928,20 @@ local function StopFesteringGlow()
         festeringTimer:Cancel()
         festeringTimer = nil
     end
+    if festeringExpiredTimer then
+        festeringExpiredTimer:Cancel()
+        festeringExpiredTimer = nil
+    end
     CancelFesteringGrace()
     festeringSuppressed = false
     festeringReasons.expiry = false
     festeringReasons.ghoul = false
     HideFesteringGlow()
+    if textAlertTimers.festeringScythe then
+        textAlertTimers.festeringScythe:Cancel()
+        textAlertTimers.festeringScythe = nil
+    end
+    addon:SetTextAlertVisible("festeringScythe", false)
 end
 
 local function ShowFesteringGlow()
@@ -803,15 +1015,27 @@ local function StartFesteringTimer()
         festeringTimer:Cancel()
         festeringTimer = nil
     end
+    if festeringExpiredTimer then
+        festeringExpiredTimer:Cancel()
+        festeringExpiredTimer = nil
+    end
     CancelFesteringGrace()
     SetFesteringReason("expiry", false)
 
     local settings = DKAssistDB.spells.festeringScythe
-    if not settings.enabled then return end
-
     local timing = settings.glowTiming or 5
     local delay  = math.max(1, FESTERING_BUFF_DURATION - timing)
+    local textTiming = math.min(24, math.max(1, (settings.textAlert and settings.textAlert.secondsLeft) or 5))
+    local textDelay = math.max(1, FESTERING_BUFF_DURATION - textTiming)
+    festeringTextEndTime = GetTime() + FESTERING_BUFF_DURATION
     festeringSuppressed = true
+    if textAlertTimers.festeringScythe then textAlertTimers.festeringScythe:Cancel() end
+    addon:SetTextAlertVisible("festeringScythe", false)
+    textAlertTimers.festeringScythe = C_Timer.NewTimer(textDelay, function()
+        textAlertTimers.festeringScythe = nil
+        if InCombatLockdown() then addon:SetTextAlertVisible("festeringScythe", true) end
+    end)
+    if not settings.enabled then return end
     festeringTimer = C_Timer.NewTimer(delay, function()
         festeringTimer = nil
         festeringSuppressed = false
@@ -840,6 +1064,7 @@ local function OnFesteringCombatEnd()
     CancelFesteringGrace()
     SetFesteringReason("ghoul", false)
     SetFesteringReason("expiry", false)
+    addon:SetTextAlertVisible("festeringScythe", false)
 end
 
 local function OnFesteringCombatStart()
@@ -1049,15 +1274,31 @@ function addon:TestFesteringGlow()
     return count
 end
 
+-- Sudden Doom is an aura, so track the aura itself instead of polling Death
+-- Coil's Runic Power cost.  The latter may be secret in modern client builds.
+local SUDDEN_DOOM_AURA_ID = 81340
 function addon:IsSuddenDoomActive()
-    local costs = C_Spell.GetSpellPowerCost(addon.SPELLS.DEATH_COIL.id)
-    if not costs then return false end
-    for _, cost in ipairs(costs) do
-        if cost.type == Enum.PowerType.RunicPower and cost.cost == 15 then
-            return true
-        end
+    -- The proc aura can be hidden by Blizzard's restricted-aura system in
+    -- combat.  Prefer it when visible, then safely fall back to the actual
+    -- Death Coil Runic Power cost, which is the live gameplay effect.
+    if C_UnitAuras and C_UnitAuras.GetPlayerAuraBySpellID then
+        local ok, aura = pcall(C_UnitAuras.GetPlayerAuraBySpellID, SUDDEN_DOOM_AURA_ID)
+        if ok and aura ~= nil then return true end
     end
-    return false
+    local ok, active = pcall(function()
+        -- Include every Sudden Doom spender/variant.  The proc is represented
+        -- by a Runic Power cost of 15 or less, not necessarily exactly 15.
+        for _, spellID in ipairs({ 47541, 1242174, 207317, 383269 }) do
+            local costs = C_Spell.GetSpellPowerCost(spellID)
+            if costs then
+                for _, cost in ipairs(costs) do
+                    if cost.type == Enum.PowerType.RunicPower and cost.cost <= 15 then return true end
+                end
+            end
+        end
+        return false
+    end)
+    return ok and active or false
 end
 
 function addon:StopSuddenDoomGlows()
@@ -1065,13 +1306,19 @@ function addon:StopSuddenDoomGlows()
     local overlays = DKAssistDB.trackCDMSuddenDoom and cdmSuddenDoomOverlays or suddenDoomOverlays
     for _, overlay in pairs(overlays) do
         if overlay._glowActive then
-            local s = DKAssistDB.spells[overlay._spellKey]
+            local s = GetSuddenDoomOverlaySettings(overlay)
             local gt = s and addon:GetGlowTypeByID(s.glowType)
             if gt and gt.stop then pcall(gt.stop, overlay) end
             overlay._glowActive = false
         end
         overlay:Hide()
     end
+    -- These two were legacy per-spender text alerts.  Sudden Doom now has
+    -- one dedicated alert, so always hide the legacy frames to avoid three
+    -- messages being displayed for the same proc.
+    addon:SetTextAlertVisible("deathCoil", false)
+    addon:SetTextAlertVisible("epidemic", false)
+    addon:SetTextAlertVisible("suddenDoom", false)
 end
 
 function addon:ShowSuddenDoomGlows()
@@ -1079,7 +1326,7 @@ function addon:ShowSuddenDoomGlows()
     local overlays = DKAssistDB.trackCDMSuddenDoom and cdmSuddenDoomOverlays or suddenDoomOverlays
     for _, overlay in pairs(overlays) do
         local target = overlay._targetFrame
-        local s = DKAssistDB.spells[overlay._spellKey]
+        local s = GetSuddenDoomOverlaySettings(overlay)
         if target and target:IsVisible() and s and s.enabled then
             overlay:Show()
             if not overlay._glowActive then
@@ -1091,6 +1338,11 @@ function addon:ShowSuddenDoomGlows()
             end
         end
     end
+    -- A Sudden Doom proc gets one text alert only.  Death Coil and Epidemic
+    -- remain separate glow configurations, not separate text messages.
+    addon:SetTextAlertVisible("deathCoil", false)
+    addon:SetTextAlertVisible("epidemic", false)
+    addon:SetTextAlertVisible("suddenDoom", true)
 end
 
 function addon:RefreshSuddenDoomGlows()
@@ -1105,7 +1357,7 @@ function addon:TestSuddenDoomGlow(spellKey)
     local overlays = DKAssistDB.trackCDMSuddenDoom and cdmSuddenDoomOverlays or suddenDoomOverlays
     for _, overlay in pairs(overlays) do
         if overlay._spellKey == spellKey and overlay._targetFrame and overlay._targetFrame:IsVisible() then
-            local s = DKAssistDB.spells[spellKey]
+            local s = GetSuddenDoomOverlaySettings(overlay)
             overlay:Show()
             local gt = addon:GetGlowTypeByID(s.glowType)
             if gt and gt.start then pcall(gt.start, overlay, s) end
@@ -1275,7 +1527,7 @@ function addon:TestDnDTracker()
         dndHideTimer = nil
     end
 
-    -- Show the frame with no swipe during test — just the icon for positioning
+    -- Show the frame with no swipe during test â€” just the icon for positioning
     dndActive = false
     dndFrame.cooldown:Clear()
     dndFrame.icon:SetDesaturated(false)
@@ -1500,20 +1752,22 @@ initFrame:SetScript("OnEvent", function(_, event)
         else
             for k, v in pairs(addon.DEFAULT_DB.spells.festeringScythe) do
                 if DKAssistDB.spells.festeringScythe[k] == nil then
-                    DKAssistDB.spells.festeringScythe[k] = v
+                    DKAssistDB.spells.festeringScythe[k] = type(v) == "table" and CopyTable(v) or v
                 end
             end
         end
+        NormalizeTextAlertFont(DKAssistDB.spells.festeringScythe.textAlert)
         for _, spellKey in ipairs({ "deathCoil", "epidemic" }) do
             if not DKAssistDB.spells[spellKey] then
                 DKAssistDB.spells[spellKey] = CopyTable(addon.DEFAULT_DB.spells[spellKey])
             else
                 for k, v in pairs(addon.DEFAULT_DB.spells[spellKey]) do
                     if DKAssistDB.spells[spellKey][k] == nil then
-                        DKAssistDB.spells[spellKey][k] = v
+                        DKAssistDB.spells[spellKey][k] = type(v) == "table" and CopyTable(v) or v
                     end
                 end
             end
+            NormalizeTextAlertFont(DKAssistDB.spells[spellKey].textAlert)
         end
         if not DKAssistDB.putrefy then
             DKAssistDB.putrefy = CopyTable(addon.DEFAULT_DB.putrefy)
@@ -1525,6 +1779,25 @@ initFrame:SetScript("OnEvent", function(_, event)
         if DKAssistDB.trackCDMFestering == nil then DKAssistDB.trackCDMFestering = false end
         if DKAssistDB.trackCDMPutrefy   == nil then DKAssistDB.trackCDMPutrefy   = false end
         if DKAssistDB.trackCDMSuddenDoom == nil then DKAssistDB.trackCDMSuddenDoom = false end
+        if not DKAssistDB.suddenDoomGlow then
+            DKAssistDB.suddenDoomGlow = CopyTable(addon.DEFAULT_DB.suddenDoomGlow)
+        else
+            for k, v in pairs(addon.DEFAULT_DB.suddenDoomGlow) do
+                if DKAssistDB.suddenDoomGlow[k] == nil then
+                    DKAssistDB.suddenDoomGlow[k] = type(v) == "table" and CopyTable(v) or v
+                end
+            end
+        end
+        if not DKAssistDB.suddenDoomTextAlert then
+            DKAssistDB.suddenDoomTextAlert = CopyTable(addon.DEFAULT_DB.suddenDoomTextAlert)
+        else
+            for k, v in pairs(addon.DEFAULT_DB.suddenDoomTextAlert) do
+                if DKAssistDB.suddenDoomTextAlert[k] == nil then
+                    DKAssistDB.suddenDoomTextAlert[k] = type(v) == "table" and CopyTable(v) or v
+                end
+            end
+        end
+        NormalizeTextAlertFont(DKAssistDB.suddenDoomTextAlert)
         if DKAssistDB.runicPowerWarning == nil then DKAssistDB.runicPowerWarning = true end
         if not DKAssistDB.runicPower then
             DKAssistDB.runicPower = CopyTable(addon.DEFAULT_DB.runicPower)
@@ -1631,7 +1904,7 @@ initFrame:SetScript("OnEvent", function(_, event)
             C_Timer.After(2, function() addon:ShowWelcomePopup() end)
         end
 
-        print("|cffcc0000DK Assist|r loaded — |cffaaaaaa/dka|r for options")
+        print("|cffcc0000DK Assist|r loaded â€” |cffaaaaaa/dka|r for options")
 
     elseif event == "PLAYER_SPECIALIZATION_CHANGED" then
         addon:StopAll()
@@ -1678,3 +1951,4 @@ SlashCmdList["DKASSIST"] = function(msg)
         end
     end
 end
+

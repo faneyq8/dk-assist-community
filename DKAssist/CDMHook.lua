@@ -7,6 +7,10 @@ local DEATH_COIL_SPELL_ID = 47541
 local NECROTIC_COIL_SPELL_ID = 1242174
 local EPIDEMIC_SPELL_ID = 207317
 local GRAVEYARD_SPELL_ID = 383269
+local SUDDEN_DOOM_BUFF_ID = 81340
+-- CDM exposes the tracked Sudden Doom icon using its parent/passive spell ID,
+-- while the live proc aura uses 81340.
+local SUDDEN_DOOM_CDM_ID = 49530
 local LESSER_GHOUL_SPELL_ID = 1254252
 local hooked = false
 
@@ -36,16 +40,16 @@ local function RegisterItem(item)
     if not DKAssistDB or (not DKAssistDB.trackCDMPutrefy and not DKAssistDB.trackCDMFestering
         and not DKAssistDB.trackCDMSuddenDoom and not LesserGhoulEnabled()) then return end
     local ok, kind = pcall(function()
-        local spellID = GetCDMSpellID(item)
+        -- Tracked Buffs may not expose a cooldown ID; cache their plain spell
+        -- ID out of combat so their icon can still be decorated in combat.
+        local spellID = GetCDMSpellID(item) or GetCDMItemSpellID(item)
         if DKAssistDB.trackCDMPutrefy and spellID == PUTREFY_SPELL_ID then
             return "putrefy"
         elseif DKAssistDB.trackCDMFestering
             and (spellID == FESTERING_SCYTHE_SPELL_ID or spellID == FESTERING_STRIKE_SPELL_ID) then
             return "festering"
-        elseif DKAssistDB.trackCDMSuddenDoom and (spellID == DEATH_COIL_SPELL_ID or spellID == NECROTIC_COIL_SPELL_ID) then
+        elseif DKAssistDB.trackCDMSuddenDoom and (spellID == SUDDEN_DOOM_BUFF_ID or spellID == SUDDEN_DOOM_CDM_ID) then
             return "deathCoil"
-        elseif DKAssistDB.trackCDMSuddenDoom and (spellID == EPIDEMIC_SPELL_ID or spellID == GRAVEYARD_SPELL_ID) then
-            return "epidemic"
         elseif LesserGhoulEnabled() and GetCDMItemSpellID(item) == LESSER_GHOUL_SPELL_ID then
             return "lesserGhoul"
         end
@@ -81,10 +85,8 @@ local function RegisterEllesmereItem(item, euiCDM)
         elseif DKAssistDB.trackCDMFestering
             and (spellID == FESTERING_SCYTHE_SPELL_ID or spellID == FESTERING_STRIKE_SPELL_ID) then
             return "festering"
-        elseif DKAssistDB.trackCDMSuddenDoom and (spellID == DEATH_COIL_SPELL_ID or spellID == NECROTIC_COIL_SPELL_ID) then
+        elseif DKAssistDB.trackCDMSuddenDoom and (spellID == SUDDEN_DOOM_BUFF_ID or spellID == SUDDEN_DOOM_CDM_ID) then
             return "deathCoil"
-        elseif DKAssistDB.trackCDMSuddenDoom and (spellID == EPIDEMIC_SPELL_ID or spellID == GRAVEYARD_SPELL_ID) then
-            return "epidemic"
         elseif LesserGhoulEnabled() and spellID == LESSER_GHOUL_SPELL_ID then
             return "lesserGhoul"
         end
@@ -170,3 +172,4 @@ loader:SetScript("OnEvent", function(_, event, loadedAddon)
     end)
     C_Timer.After(2, RegisterExistingItems)
 end)
+

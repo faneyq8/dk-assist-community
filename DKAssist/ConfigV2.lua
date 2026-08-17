@@ -7,6 +7,9 @@ local LCG = LibStub("LibCustomGlow-1.0")
 
 local PAGE_ITEMS = {
     { text = "Festering Scythe", value = "festering" },
+    { text = "Festering Scythe WA-Style", value = "festeringwa" },
+    { text = "Sudden Doom", value = "suddendoom" },
+    { text = "Sudden Doom WA-Style", value = "suddendoomwa" },
     { text = "Death Coil (Sudden Doom)", value = "deathcoil" },
     { text = "Epidemic (Sudden Doom)", value = "epidemic" },
     { text = "Putrefy", value = "putrefy" },
@@ -25,6 +28,20 @@ local PRESETS = {
     { 0.70, 0.30, 1.00 },
     { 1.00, 0.85, 0.00 },
     { 1.00, 1.00, 1.00 },
+}
+
+local TEXT_FONTS = {
+    { text = "Friz Quadrata", value = "Fonts\\FRIZQT__.TTF" },
+    { text = "Arial Narrow", value = "Fonts\\ARIALN.TTF" },
+    { text = "Morpheus", value = "Fonts\\MORPHEUS.TTF" },
+    { text = "Skurri", value = "Fonts\\SKURRI.TTF" },
+    { text = "2002", value = "Fonts\\2002.TTF" },
+}
+
+local TEXT_OUTLINES = {
+    { text = "No Outline", value = "" },
+    { text = "Thin Outline", value = "OUTLINE" },
+    { text = "Thick Outline", value = "THICKOUTLINE" },
 }
 
 local function GetSpellTextureSafe(spellID, fallback)
@@ -53,13 +70,15 @@ local function CreateCard(parent, titleText)
     local left = card:CreateTexture(nil, "OVERLAY")
     left:SetTexture("Interface\\Buttons\\WHITE8X8")
     left:SetHeight(1)
-    left:SetWidth(72)
+    -- Keep the ornamental dividers inside narrow cards, including the long
+    -- Text Alert titles.
+    left:SetWidth(40)
     left:SetVertexColor(0.68, 0.55, 0.10, 0.75)
     left:SetPoint("RIGHT", title, "LEFT", -7, 0)
     local right = card:CreateTexture(nil, "OVERLAY")
     right:SetTexture("Interface\\Buttons\\WHITE8X8")
     right:SetHeight(1)
-    right:SetWidth(72)
+    right:SetWidth(40)
     right:SetVertexColor(0.68, 0.55, 0.10, 0.75)
     right:SetPoint("LEFT", title, "RIGHT", 7, 0)
     return card
@@ -209,6 +228,21 @@ local function CreateColorControl(parent, x, y, labelText, colorProvider, change
     return swatch
 end
 
+local function CreateEditControl(parent, labelText, x, y, width, getter, setter)
+    local label = CreateText(parent, labelText, x, y, "GameFontNormal")
+    local edit = CreateFrame("EditBox", nil, parent, "InputBoxTemplate")
+    edit:SetSize(width, 22)
+    edit:SetPoint("LEFT", label, "RIGHT", 8, 0)
+    edit:SetAutoFocus(false)
+    edit:SetScript("OnEnterPressed", function(self)
+        setter(self:GetText())
+        self:ClearFocus()
+    end)
+    edit:SetScript("OnEditFocusLost", function(self) setter(self:GetText()) end)
+    edit.refresh = function() edit:SetText(getter() or "") end
+    return edit
+end
+
 local function CreatePresetRow(parent, x, y, settingsProvider, changed)
     local label = CreateText(parent, "Presets:", x, y, "GameFontNormal")
     local buttons = {}
@@ -246,7 +280,7 @@ function addon:CreateConfigPanel(standalone)
 
     local title = CreateText(panel, "|cffcc0000DK Assist|r", 16, -14, "GameFontNormalLarge")
     local subtitle = CreateText(panel,
-        "Unholy Death Knight - Festering Scythe, Putrefy, Death and Decay & Soul Reaper",
+        "Unholy DK alerts - Scythe, Sudden Doom, Putrefy, Runic Power & Death and Decay",
         16, -36, "GameFontHighlightSmall", nil, { 0.67, 0.67, 0.67 })
 
     local selectedKey = "festering"
@@ -300,13 +334,13 @@ function addon:CreateConfigPanel(standalone)
         function()
             if selectedKey == "festering" then return DKAssistDB.trackCDMFestering end
             if selectedKey == "putrefy" then return DKAssistDB.trackCDMPutrefy end
-            if selectedKey == "deathcoil" or selectedKey == "epidemic" then return DKAssistDB.trackCDMSuddenDoom end
+            if selectedKey == "suddendoom" or selectedKey == "deathcoil" or selectedKey == "epidemic" then return DKAssistDB.trackCDMSuddenDoom end
             return false
         end,
         function(enabled)
             if selectedKey == "festering" then DKAssistDB.trackCDMFestering = enabled
             elseif selectedKey == "putrefy" then DKAssistDB.trackCDMPutrefy = enabled
-            elseif selectedKey == "deathcoil" or selectedKey == "epidemic" then DKAssistDB.trackCDMSuddenDoom = enabled end
+            elseif selectedKey == "suddendoom" or selectedKey == "deathcoil" or selectedKey == "epidemic" then DKAssistDB.trackCDMSuddenDoom = enabled end
             addon:StopAll()
             addon:ScanAllButtons()
             if addon.RefreshCDMTrackedItems then addon:RefreshCDMTrackedItems() end
@@ -330,6 +364,7 @@ function addon:CreateConfigPanel(standalone)
     local function RefreshTracking()
         if selectedKey == "festering" and addon.RefreshFesteringGlows then addon:RefreshFesteringGlows() end
         if (selectedKey == "deathcoil" or selectedKey == "epidemic") and addon.RefreshSuddenDoomGlows then addon:RefreshSuddenDoomGlows() end
+        if selectedKey == "suddendoom" and addon.RefreshSuddenDoomGlows then addon:RefreshSuddenDoomGlows() end
         if selectedKey == "putrefy" and addon.RefreshPutrefyWarnings then addon:RefreshPutrefyWarnings() end
         if selectedKey == "runic" and addon.UpdateRunicPowerGlow then addon:UpdateRunicPowerGlow() end
     end
@@ -358,6 +393,7 @@ function addon:CreateConfigPanel(standalone)
         if selectedKey == "festering" then settings = DKAssistDB.spells.festeringScythe
         elseif selectedKey == "deathcoil" then settings = DKAssistDB.spells.deathCoil
         elseif selectedKey == "epidemic" then settings = DKAssistDB.spells.epidemic
+        elseif selectedKey == "suddendoom" then settings = DKAssistDB.suddenDoomGlow
         elseif selectedKey == "runic" then settings = DKAssistDB.runicPower end
         if not settings or not settings.enabled then return end
         local target = page.previewIcon
@@ -397,28 +433,33 @@ function addon:CreateConfigPanel(standalone)
         return icon, bar
     end
 
-    local function AddSelector(page, card)
+    local function AddSelector(page, card, fieldName)
         local selectorLabel = CreateText(card, "Configure:", 14, -38, "GameFontNormal")
-        page.selector = CreateDropdown(card, 0, 0, 148,
+        local selector = CreateDropdown(card, 0, 0, 148,
             function() return PAGE_ITEMS end,
             function() return selectedKey end,
             function(value) panel:ShowPage(value) end)
-        page.selector:ClearAllPoints()
-        page.selector:SetPoint("LEFT", selectorLabel, "RIGHT", -8, -2)
+        selector:ClearAllPoints()
+        selector:SetPoint("LEFT", selectorLabel, "RIGHT", -8, -2)
+        page[fieldName or "selector"] = selector
     end
 
     local function GlowSettingsFor(key)
         if key == "festering" then return DKAssistDB.spells.festeringScythe end
         if key == "deathcoil" then return DKAssistDB.spells.deathCoil end
         if key == "epidemic" then return DKAssistDB.spells.epidemic end
+        if key == "suddendoom" then return DKAssistDB.suddenDoomGlow end
         return DKAssistDB.runicPower
     end
 
     local function BuildAppearance(page, card, key)
         page.appearanceControls = {}
-        local appearanceWidth = (key == "festering" or key == "runic") and 190 or 330
+        local appearanceWidth = (key == "festering" or key == "runic") and 190
+            or (key == "suddendoom" and 250 or 330)
         local function settings() return GlowSettingsFor(key) end
-        local function changed() RefreshTracking(); RefreshPreview(page) end
+        local function changed()
+            RefreshTracking(); RefreshPreview(page)
+        end
         local controls = {
             speed = CreateSlider(card, "Animation Speed", 14, -38, appearanceWidth, 0.05, 2, 0.05,
                 function() return settings().speed end, function(v) settings().speed = v; changed() end),
@@ -456,11 +497,143 @@ function addon:CreateConfigPanel(standalone)
         page.settingsCard = CreateCard(page, titleText)
         page.previewCard = CreateCard(page, "Live Preview")
         page.appearanceCard = CreateCard(page, "Pixel Glow appearance")
-        if key == "festering" then
+        if key == "festering" or key == "deathcoil" or key == "epidemic" then
             page.warningCard = CreateCard(page, "Warning timing")
             page.ghoulCard = CreateCard(page, "Lesser Ghoul reminder")
         end
+        -- The three proc pages can show either the existing button glow
+        -- configuration or a separate movable text alert.  They are separate
+        -- toggles, so both visual cues may be enabled at the same time.
+        if key == "festering" then
+            page.hasTextAlerts = true
+            page.glowCards = { page.settingsCard, page.previewCard, page.appearanceCard, page.warningCard, page.ghoulCard }
+            page.textSettingsCard = CreateCard(page, "Festering Scythe WA-Style")
+            page.textPreviewCard = CreateCard(page, "Text Alert Preview")
+
+            local function textSettings()
+                local spellKey = key == "festering" and "festeringScythe" or (key == "deathcoil" and "deathCoil" or "epidemic")
+                return DKAssistDB.spells[spellKey].textAlert
+            end
+            AddSelector(page, page.textSettingsCard, "textSelector")
+            page.glowTab = CreateFrame("Button", nil, page.textSettingsCard, "UIPanelButtonTemplate")
+            page.glowTab:SetSize(92, 22)
+            page.glowTab:SetPoint("LEFT", page.textSelector, "RIGHT", -18, 1)
+            page.glowTab:SetText("Glow")
+            page.textEnable = CreateCheck(page.textSettingsCard, "Enable Text Alert", 14, -76,
+                function() return textSettings().enabled end,
+                function(value)
+                    textSettings().enabled = value
+                    addon:RefreshTextAlert(key == "festering" and "festeringScythe" or (key == "deathcoil" and "deathCoil" or "epidemic"))
+                end)
+            page.textExpired = CreateCheck(page.textSettingsCard, "Show expired alert", 200, -76,
+                function() return textSettings().expiredWarning end,
+                function(value) textSettings().expiredWarning = value end)
+            page.textValue = CreateEditControl(page.textSettingsCard, "Display Text:", 14, -112, 160,
+                function() return textSettings().text end,
+                function(value)
+                    textSettings().text = value
+                    addon:RefreshTextAlert(key == "festering" and "festeringScythe" or (key == "deathcoil" and "deathCoil" or "epidemic"))
+                    page.RefreshTextPreview()
+                end)
+            page.textColor = CreateColorControl(page.textSettingsCard, 14, -150, "Text Color:",
+                function() return textSettings().color end,
+                function()
+                    addon:RefreshTextAlert(key == "festering" and "festeringScythe" or (key == "deathcoil" and "deathCoil" or "epidemic"))
+                    page.RefreshTextPreview()
+                end)
+            CreatePresetRow(page.textSettingsCard, 14, -181, textSettings, function()
+                page.textColor.refresh()
+                addon:RefreshTextAlert("festeringScythe")
+                page.RefreshTextPreview()
+            end)
+            page.textTiming = CreateSlider(page.textSettingsCard, "Alert when X sec remaining", 14, -220, 190, 1, 24, 1,
+                function() return textSettings().secondsLeft or 5 end,
+                function(value) textSettings().secondsLeft = value end)
+            page.textPreview = CreateText(page.textPreviewCard, "", 0, 0, "GameFontNormalLarge", 250)
+            page.textPreview:ClearAllPoints()
+            page.textPreview:SetPoint("CENTER", page.textPreviewCard, "CENTER", 0, -6)
+            page.textPreview:SetJustifyH("CENTER")
+            page.textPreviewTimer = CreateText(page.textPreviewCard, "5.0s", 0, 0, "GameFontNormalLarge", 250)
+            page.textPreviewTimer:ClearAllPoints()
+            page.textPreviewTimer:SetPoint("TOP", page.textPreview, "BOTTOM", 0, -5)
+            page.textPreviewTimer:SetJustifyH("CENTER")
+            page.RefreshTextPreview = function()
+                local ts = textSettings()
+                page.textPreview:SetText(ts.text or "DK ASSIST")
+                local previewFont = ts.font or STANDARD_TEXT_FONT
+                local previewSize = math.min(32, ts.fontSize or 28)
+                if not page.textPreview:SetFont(previewFont, previewSize, ts.outline or "OUTLINE") then
+                    previewFont = STANDARD_TEXT_FONT
+                    page.textPreview:SetFont(previewFont, previewSize, ts.outline or "OUTLINE")
+                end
+                page.textPreview:SetTextColor(ts.color.r, ts.color.g, ts.color.b, 1)
+                page.textPreviewTimer:SetFont(previewFont, math.max(14, previewSize - 4), ts.outline or "OUTLINE")
+                page.textPreviewTimer:SetTextColor(0.2, 1.0, 0.2, 1)
+                page.textPreview:Show()
+                page.textPreviewTimer:Show()
+            end
+            page.textLock = CreateCheck(page.textSettingsCard, "Lock position", 14, -270,
+                function() return textSettings().locked end,
+                function(value) textSettings().locked = value end)
+            page.textSize = CreateSlider(page.textSettingsCard, "Font Size", 14, -308, 190, 12, 48, 1,
+                function() return textSettings().fontSize or 28 end,
+                function(value)
+                    textSettings().fontSize = value
+                    addon:RefreshTextAlert(key == "festering" and "festeringScythe" or (key == "deathcoil" and "deathCoil" or "epidemic"))
+                    page.RefreshTextPreview()
+                end)
+            local fontLabel = CreateText(page.textSettingsCard, "Font:", 14, -364, "GameFontNormal")
+            page.textFont = CreateDropdown(page.textSettingsCard, 0, 0, 150,
+                function() return TEXT_FONTS end,
+                function() return textSettings().font or "Fonts\\FRIZQT__.TTF" end,
+                function(value) textSettings().font = value; addon:RefreshTextAlert(key == "festering" and "festeringScythe" or (key == "deathcoil" and "deathCoil" or "epidemic")); page.RefreshTextPreview() end)
+            page.textFont:ClearAllPoints(); page.textFont:SetPoint("LEFT", fontLabel, "RIGHT", -8, -2)
+            local outlineLabel = CreateText(page.textSettingsCard, "Outline Style:", 14, -400, "GameFontNormal")
+            page.textOutline = CreateDropdown(page.textSettingsCard, 0, 0, 150,
+                function() return TEXT_OUTLINES end,
+                function() return textSettings().outline or "OUTLINE" end,
+                function(value) textSettings().outline = value; addon:RefreshTextAlert(key == "festering" and "festeringScythe" or (key == "deathcoil" and "deathCoil" or "epidemic")); page.RefreshTextPreview() end)
+            page.textOutline:ClearAllPoints(); page.textOutline:SetPoint("LEFT", outlineLabel, "RIGHT", -8, -2)
+            page.textTest = CreateFrame("Button", nil, page.textSettingsCard, "UIPanelButtonTemplate")
+            page.textTest:SetSize(110, 24)
+            page.textTest:SetPoint("TOPLEFT", page.textSettingsCard, "TOPLEFT", 14, -430)
+            page.textTest:SetText("Test Text Alert")
+            page.textTest:SetScript("OnClick", function()
+                addon:TestTextAlert(key == "festering" and "festeringScythe" or (key == "deathcoil" and "deathCoil" or "epidemic"))
+            end)
+            page.textReset = CreateFrame("Button", nil, page.textSettingsCard, "UIPanelButtonTemplate")
+            page.textReset:SetSize(110, 24)
+            page.textReset:SetPoint("LEFT", page.textTest, "RIGHT", 8, 0)
+            page.textReset:SetText("Reset Position")
+            page.textReset:SetScript("OnClick", function()
+                textSettings().point = nil
+                addon:RefreshTextAlert(key == "festering" and "festeringScythe" or (key == "deathcoil" and "deathCoil" or "epidemic"))
+            end)
+            page.textCards = { page.textSettingsCard, page.textPreviewCard }
+
+            page.SetMode = function(mode)
+                local spellSettings = GlowSettingsFor(key)
+                spellSettings.textAlertMode = mode
+                for _, card in ipairs(page.glowCards) do if card then card:SetShown(mode == "glow") end end
+                for _, card in ipairs(page.textCards) do if card then card:SetShown(mode == "text") end end
+                page.glowTab:SetEnabled(mode ~= "glow")
+                page.textTab:SetEnabled(mode ~= "text")
+                cdmCheck:SetShown((mode == "glow") and (key == "festering" or key == "deathcoil" or key == "epidemic"))
+            end
+            page.glowTab:SetScript("OnClick", function() page.SetMode("glow") end)
+        end
         AddSelector(page, page.settingsCard)
+        if page.hasTextAlerts then
+            page.textTab = CreateFrame("Button", nil, page.settingsCard, "UIPanelButtonTemplate")
+            page.textTab:SetSize(92, 22)
+            page.textTab:SetPoint("LEFT", page.selector, "RIGHT", -18, 1)
+            page.textTab:SetText("Text Alert")
+            page.textTab:SetScript("OnClick", function() page.SetMode("text") end)
+            -- WA-Style is now a dedicated Configure entry, so the old
+            -- secondary navigation buttons are intentionally hidden.
+            page.textTab:Hide()
+            page.glowTab:Hide()
+        end
         local function settings() return GlowSettingsFor(key) end
         local function changed()
             if key == "festering" and addon.RefreshFesteringGlowStyle then addon:RefreshFesteringGlowStyle() end
@@ -470,7 +643,11 @@ function addon:CreateConfigPanel(standalone)
             key == "runic" and "Enable Runic Power glow" or (key == "festering" and "Enable glow" or "Enable Sudden Doom glow"),
             14, -76, function() return settings().enabled end,
             function(value) settings().enabled = value; changed() end)
-        local glowStyleLabel = CreateText(page.settingsCard, "Glow Style:", 14, -112, "GameFontNormal")
+        -- Sudden Doom is enabled once from its dedicated page.  The Death
+        -- Coil and Epidemic pages remain only for their individual styling.
+        if key == "deathcoil" or key == "epidemic" then page.enable:Hide() end
+        local compactOffset = (key == "deathcoil" or key == "epidemic") and 36 or 0
+        local glowStyleLabel = CreateText(page.settingsCard, "Glow Style:", 14, -112 + compactOffset, "GameFontNormal")
         page.glowDropdown = CreateDropdown(page.settingsCard, 0, 0, 145,
             function()
                 local items = {}
@@ -487,9 +664,9 @@ function addon:CreateConfigPanel(standalone)
             end)
         page.glowDropdown:ClearAllPoints()
         page.glowDropdown:SetPoint("LEFT", glowStyleLabel, "RIGHT", -8, -2)
-        page.colorSwatch = CreateColorControl(page.settingsCard, 14, -149, "Glow Color:",
+        page.colorSwatch = CreateColorControl(page.settingsCard, 14, -149 + compactOffset, "Glow Color:",
             function() return settings().color end, changed)
-        CreatePresetRow(page.settingsCard, 14, -181, settings, function()
+        CreatePresetRow(page.settingsCard, 14, -181 + compactOffset, settings, function()
             page.colorSwatch.refresh(); changed()
         end)
 
@@ -497,16 +674,16 @@ function addon:CreateConfigPanel(standalone)
         BuildAppearance(page, page.appearanceCard, key)
 
         if key == "festering" then
-            page.timing = CreateSlider(page.warningCard, "Glow when X sec remaining", 14, -37, 175, 1, 24, 1,
-                function() return settings().glowTiming end,
-                function(v) settings().glowTiming = v end)
-            page.combat = CreateCheck(page.warningCard, "Glow at combat start", 14, -88,
+            page.combat = CreateCheck(page.warningCard, "Glow at combat start", 14, -38,
                 function() return settings().combatGlow ~= false end,
                 function(value) settings().combatGlow = value; if not value and addon.CancelFesteringCombatGlow then addon:CancelFesteringCombatGlow() end end)
-            page.grace = CreateSlider(page.warningCard, "Combat start delay (sec)", 14, -119, 175, 0, 20, 1,
+            page.timing = CreateSlider(page.warningCard, "Glow when X sec remaining", 14, -72, 175, 1, 24, 1,
+                function() return settings().glowTiming end,
+                function(v) settings().glowTiming = v end)
+            page.grace = CreateSlider(page.warningCard, "Combat start delay (sec)", 14, -122, 175, 0, 20, 1,
                 function() return settings().combatGrace or 0 end,
                 function(v) settings().combatGrace = v end)
-            page.ghoul = CreateCheck(page.ghoulCard, "Also glow when Lesser Ghoul is missing", 14, -35,
+            page.ghoul = CreateCheck(page.ghoulCard, "Also glow when Lesser Ghoul is missing", 14, -20,
                 function() return settings().lesserGhoulGlow end,
                 function(value)
                     settings().lesserGhoulGlow = value
@@ -514,7 +691,7 @@ function addon:CreateConfigPanel(standalone)
                 end)
             page.ghoulHint = CreateText(page.ghoulCard,
                 "Requires Lesser Ghoul in the Cooldown Manager, under either Tracked Buffs or Tracked Bars.",
-                18, -62, "GameFontHighlightSmall", 310, { 0.64, 0.64, 0.64 })
+                18, -49, "GameFontHighlightSmall", 310, { 0.64, 0.64, 0.64 })
         elseif key == "runic" then
             page.threshold = CreateSlider(page.settingsCard, "Glow at Runic Power", 14, -198, 175, 50, 100, 1,
                 function() return settings().threshold end,
@@ -523,13 +700,136 @@ function addon:CreateConfigPanel(standalone)
         end
 
         page.refresh = function()
-            page.selector.refresh(); page.enable.refresh(); page.glowDropdown.refresh(); page.colorSwatch.refresh()
+            page.selector.refresh()
+            if key ~= "deathcoil" and key ~= "epidemic" then page.enable.refresh() end
+            page.glowDropdown.refresh(); page.colorSwatch.refresh()
             page.refreshAppearance()
             if page.timing then page.timing.refresh(); page.combat.refresh(); page.grace.refresh(); page.ghoul.refresh() end
             if page.threshold then page.threshold.refresh() end
+            if page.hasTextAlerts then
+                page.textSelector.refresh(); page.textEnable.refresh(); page.textExpired.refresh(); page.textValue.refresh(); page.textColor.refresh(); page.textTiming.refresh(); page.textLock.refresh(); page.textSize.refresh(); page.textFont.refresh(); page.textOutline.refresh()
+                local ts = key == "festering" and DKAssistDB.spells.festeringScythe.textAlert or (key == "deathcoil" and DKAssistDB.spells.deathCoil.textAlert or DKAssistDB.spells.epidemic.textAlert)
+                page.RefreshTextPreview()
+                page.SetMode(GlowSettingsFor(key).textAlertMode or "glow")
+            end
             RefreshPreview(page)
         end
         pages[key] = page
+    end
+
+    local function BuildSuddenDoomPage()
+        local page = CreateFrame("Frame", nil, pageHolder)
+        page:SetAllPoints(); page.layoutKind = "suddendoom"
+        page.glowCard = CreateCard(page, "Sudden Doom Glow")
+        page.previewCard = CreateCard(page, "Sudden Doom Preview")
+        page.textCard = CreateCard(page, "Sudden Doom WA-Style")
+        page.textPreviewCard = CreateCard(page, "Text Alert Preview")
+        page.appearanceCard = CreateCard(page, "Pixel Glow appearance")
+        AddSelector(page, page.glowCard)
+        page.textTab = CreateFrame("Button", nil, page.glowCard, "UIPanelButtonTemplate")
+        page.textTab:SetSize(90, 22)
+        page.textTab:SetPoint("LEFT", page.selector, "RIGHT", -18, 0)
+        page.textTab:SetText("Text Alert")
+        local function settings() return DKAssistDB.suddenDoomGlow end
+        local function changed()
+            addon:RefreshSuddenDoomGlows(); RefreshPreview(page)
+        end
+        page.enable = CreateCheck(page.glowCard, "Enable Sudden Doom glow", 14, -76,
+            function() return settings().enabled end, function(v) settings().enabled = v; changed() end)
+        local styleLabel = CreateText(page.glowCard, "Glow Style:", 14, -112, "GameFontNormal")
+        page.glowDropdown = CreateDropdown(page.glowCard, 0, 0, 145,
+            function()
+                local items = {}; for _, glowType in ipairs(addon.GLOW_TYPES) do items[#items + 1] = { text = glowType.name, value = glowType.id } end
+                return items
+            end,
+            function() return settings().glowType end,
+            function(v) settings().glowType = v; page.refreshAppearance(); changed() end)
+        page.glowDropdown:ClearAllPoints(); page.glowDropdown:SetPoint("LEFT", styleLabel, "RIGHT", -8, -2)
+        page.colorSwatch = CreateColorControl(page.glowCard, 14, -149, "Glow Color:", function() return settings().color end, changed)
+        CreatePresetRow(page.glowCard, 14, -181, settings, function() page.colorSwatch.refresh(); changed() end)
+        BuildAppearance(page, page.appearanceCard, "suddendoom")
+
+        local function textSettings() return DKAssistDB.suddenDoomTextAlert end
+        AddSelector(page, page.textCard, "textSelector")
+        page.glowTab = CreateFrame("Button", nil, page.textCard, "UIPanelButtonTemplate")
+        page.glowTab:SetSize(90, 22)
+        page.glowTab:SetPoint("LEFT", page.textSelector, "RIGHT", -18, 0)
+        page.glowTab:SetText("Glow")
+        page.textEnable = CreateCheck(page.textCard, "Enable Text Alert", 14, -76,
+            function() return textSettings().enabled end,
+            function(v) textSettings().enabled = v; addon:RefreshTextAlert("suddenDoom") end)
+        page.textValue = CreateEditControl(page.textCard, "Display Text:", 14, -112, 170,
+            function() return textSettings().text end,
+            function(v) textSettings().text = v; addon:RefreshTextAlert("suddenDoom"); page.RefreshTextPreview() end)
+        page.textColor = CreateColorControl(page.textCard, 14, -148, "Text Color:",
+            function() return textSettings().color end, function() addon:RefreshTextAlert("suddenDoom"); page.RefreshTextPreview() end)
+        CreatePresetRow(page.textCard, 14, -179, textSettings, function()
+            page.textColor.refresh()
+            addon:RefreshTextAlert("suddenDoom")
+            page.RefreshTextPreview()
+        end)
+        page.textLock = CreateCheck(page.textCard, "Lock position", 14, -218,
+            function() return textSettings().locked end, function(v) textSettings().locked = v end)
+        page.textSize = CreateSlider(page.textCard, "Font Size", 14, -256, 190, 12, 48, 1,
+            function() return textSettings().fontSize or 28 end,
+            function(v) textSettings().fontSize = v; addon:RefreshTextAlert("suddenDoom"); page.RefreshTextPreview() end)
+        local fontLabel = CreateText(page.textCard, "Font:", 14, -312, "GameFontNormal")
+        page.textFont = CreateDropdown(page.textCard, 0, 0, 150,
+            function() return TEXT_FONTS end,
+            function() return textSettings().font or "Fonts\\FRIZQT__.TTF" end,
+            function(v) textSettings().font = v; addon:RefreshTextAlert("suddenDoom"); page.RefreshTextPreview() end)
+        page.textFont:ClearAllPoints(); page.textFont:SetPoint("LEFT", fontLabel, "RIGHT", -8, -2)
+        local outlineLabel = CreateText(page.textCard, "Outline Style:", 14, -348, "GameFontNormal")
+        page.textOutline = CreateDropdown(page.textCard, 0, 0, 150,
+            function() return TEXT_OUTLINES end,
+            function() return textSettings().outline or "OUTLINE" end,
+            function(v) textSettings().outline = v; addon:RefreshTextAlert("suddenDoom"); page.RefreshTextPreview() end)
+        page.textOutline:ClearAllPoints(); page.textOutline:SetPoint("LEFT", outlineLabel, "RIGHT", -8, -2)
+        page.textTest = CreateFrame("Button", nil, page.textCard, "UIPanelButtonTemplate")
+        page.textTest:SetSize(110, 24); page.textTest:SetPoint("TOPLEFT", page.textCard, "TOPLEFT", 14, -382)
+        page.textTest:SetText("Test Text Alert")
+        page.textTest:SetScript("OnClick", function() addon:TestTextAlert("suddenDoom") end)
+        page.textReset = CreateFrame("Button", nil, page.textCard, "UIPanelButtonTemplate")
+        page.textReset:SetSize(110, 24); page.textReset:SetPoint("LEFT", page.textTest, "RIGHT", 8, 0)
+        page.textReset:SetText("Reset Position")
+        page.textReset:SetScript("OnClick", function() textSettings().point = nil; addon:RefreshTextAlert("suddenDoom") end)
+
+        page.previewIcon, page.previewBar = CreatePreview(page.previewCard, 81340, false)
+        page.textPreview = CreateText(page.textPreviewCard, "SUDDEN DOOM", 0, 0, "GameFontNormalLarge")
+        page.textPreview:ClearAllPoints(); page.textPreview:SetPoint("CENTER", page.textPreviewCard, "CENTER", 0, -5)
+        page.textPreview:SetJustifyH("CENTER")
+        page.RefreshTextPreview = function()
+            local ts = textSettings()
+            page.textPreview:SetText(ts.text or "SUDDEN DOOM")
+            page.textPreview:SetFont(ts.font or STANDARD_TEXT_FONT, math.min(42, ts.fontSize or 28), ts.outline or "OUTLINE")
+            page.textPreview:SetTextColor(ts.color.r, ts.color.g, ts.color.b, 1)
+            page.textPreview:Show()
+        end
+        page.SetMode = function(mode)
+            mode = mode == "text" and "text" or "glow"
+            DKAssistDB.suddenDoomTextMode = mode
+            local glowMode = mode == "glow"
+            page.glowCard:SetShown(glowMode)
+            page.previewCard:SetShown(glowMode)
+            page.appearanceCard:SetShown(glowMode)
+            page.textCard:SetShown(not glowMode)
+            page.textPreviewCard:SetShown(not glowMode)
+            page.textPreview:SetShown(not glowMode)
+            cdmCheck:SetShown(glowMode)
+        end
+        page.textTab:SetScript("OnClick", function() page.SetMode("text") end)
+        page.glowTab:SetScript("OnClick", function() page.SetMode("glow") end)
+        page.textTab:Hide()
+        page.glowTab:Hide()
+        page.refresh = function()
+            page.selector.refresh(); page.textSelector.refresh()
+            page.enable.refresh(); page.glowDropdown.refresh(); page.colorSwatch.refresh(); page.refreshAppearance()
+            page.textEnable.refresh(); page.textValue.refresh(); page.textColor.refresh(); page.textLock.refresh(); page.textSize.refresh(); page.textFont.refresh(); page.textOutline.refresh()
+            page.RefreshTextPreview()
+            RefreshPreview(page)
+            page.SetMode(DKAssistDB.suddenDoomTextMode or "glow")
+        end
+        pages.suddendoom = page
     end
 
     local function BuildPutrefyPage()
@@ -658,6 +958,7 @@ function addon:CreateConfigPanel(standalone)
     BuildGlowPage("festering", "Festering Scythe Warning", addon.SPELLS.FESTERING_STRIKE.id)
     BuildGlowPage("deathcoil", "Death Coil - Sudden Doom", addon.SPELLS.DEATH_COIL.id)
     BuildGlowPage("epidemic", "Epidemic - Sudden Doom", addon.SPELLS.EPIDEMIC.id)
+    BuildSuddenDoomPage()
     BuildPutrefyPage()
     BuildGlowPage("runic", "Runic Power Glow", nil)
     BuildDnDPage()
@@ -679,15 +980,51 @@ function addon:CreateConfigPanel(standalone)
         local lowerHeight = height - topHeight - gap
 
         for key, page in pairs(pages) do
-            for _, card in pairs({ page.settingsCard, page.previewCard, page.warningCard, page.ghoulCard, page.appearanceCard }) do
+            for _, card in pairs({ page.settingsCard, page.previewCard, page.warningCard, page.ghoulCard, page.appearanceCard,
+                page.textSettingsCard, page.textPreviewCard, page.textAppearanceCard, page.glowCard, page.textCard }) do
                 if card then card:ClearAllPoints() end
             end
-            if page.layoutKind == "festering" then
+            if page.hasTextAlerts then
+                local contentTop = 0
+                local contentLowerY = contentTop - topHeight - gap
+                page.settingsCard:SetPoint("TOPLEFT", page, "TOPLEFT", 0, contentTop)
+                page.settingsCard:SetSize(leftWidth, topHeight)
+                page.previewCard:SetPoint("TOPRIGHT", page, "TOPRIGHT", 0, contentTop)
+                page.previewCard:SetSize(rightWidth, topHeight)
+                page.textSettingsCard:SetPoint("TOPLEFT", page, "TOPLEFT", 0, contentTop)
+                page.textSettingsCard:SetPoint("BOTTOMRIGHT", page, "BOTTOMLEFT", leftWidth, 0)
+                page.textPreviewCard:SetPoint("TOPRIGHT", page, "TOPRIGHT", 0, contentTop)
+                page.textPreviewCard:SetSize(rightWidth, topHeight)
+                if page.layoutKind == "festering" then
+                    local warningHeight = math.max(174, math.floor((height - topHeight - gap) * 0.62))
+                    page.warningCard:SetPoint("TOPLEFT", page, "TOPLEFT", 0, contentLowerY)
+                    page.warningCard:SetSize(leftWidth, warningHeight)
+                    page.ghoulCard:SetPoint("TOPLEFT", page.warningCard, "BOTTOMLEFT", 0, -gap)
+                    page.ghoulCard:SetPoint("BOTTOMRIGHT", page, "BOTTOMLEFT", leftWidth, 0)
+                    page.appearanceCard:SetPoint("TOPRIGHT", page, "TOPRIGHT", 0, contentLowerY)
+                    page.appearanceCard:SetPoint("BOTTOMLEFT", page, "BOTTOMLEFT", leftWidth + gap, 0)
+                    page.ghoulHint:SetWidth(math.max(230, leftWidth - 36))
+                else
+                    page.appearanceCard:SetPoint("TOPLEFT", page, "TOPLEFT", 0, contentLowerY)
+                    page.appearanceCard:SetPoint("BOTTOMRIGHT", page, "BOTTOMRIGHT", 0, 0)
+                end
+            elseif page.layoutKind == "suddendoom" then
+                page.glowCard:SetPoint("TOPLEFT", page, "TOPLEFT", 0, 0)
+                page.glowCard:SetSize(leftWidth, topHeight)
+                page.previewCard:SetPoint("TOPRIGHT", page, "TOPRIGHT", 0, 0)
+                page.previewCard:SetSize(rightWidth, topHeight)
+                page.appearanceCard:SetPoint("TOPLEFT", page, "TOPLEFT", 0, lowerY)
+                page.appearanceCard:SetPoint("BOTTOMRIGHT", page, "BOTTOMRIGHT", 0, 0)
+                page.textCard:SetPoint("TOPLEFT", page, "TOPLEFT", 0, 0)
+                page.textCard:SetPoint("BOTTOMRIGHT", page, "BOTTOMLEFT", leftWidth, 0)
+                page.textPreviewCard:SetPoint("TOPRIGHT", page, "TOPRIGHT", 0, 0)
+                page.textPreviewCard:SetSize(rightWidth, topHeight)
+            elseif page.layoutKind == "festering" then
                 page.settingsCard:SetPoint("TOPLEFT", page, "TOPLEFT", 0, 0)
                 page.settingsCard:SetSize(leftWidth, topHeight)
                 page.previewCard:SetPoint("TOPRIGHT", page, "TOPRIGHT", 0, 0)
                 page.previewCard:SetSize(rightWidth, topHeight)
-                local warningHeight = math.max(146, math.floor(lowerHeight * 0.62))
+                local warningHeight = math.max(174, math.floor(lowerHeight * 0.62))
                 page.warningCard:SetPoint("TOPLEFT", page, "TOPLEFT", 0, lowerY)
                 page.warningCard:SetSize(leftWidth, warningHeight)
                 page.ghoulCard:SetPoint("TOPLEFT", page.warningCard, "BOTTOMLEFT", 0, -gap)
@@ -726,19 +1063,27 @@ function addon:CreateConfigPanel(standalone)
     end
 
     function panel:ShowPage(key)
-        if not pages[key] then key = "festering" end
+        local pageKey = key
+        if key == "festeringwa" then pageKey = "festering"
+        elseif key == "suddendoomwa" then pageKey = "suddendoom" end
+        if not pages[pageKey] then key, pageKey = "festering", "festering" end
         if activePage then StopPreview(activePage); activePage:Hide() end
         selectedKey = key
-        activePage = pages[key]
+        activePage = pages[pageKey]
         activePage:Show()
-        for pageKey, page in pairs(pages) do if pageKey ~= key then page:Hide() end end
+        for _, page in pairs(pages) do if page ~= activePage then page:Hide() end end
         testActive = false; testButton:SetText("Test")
-        cdmCheck:SetShown(key == "festering" or key == "putrefy" or key == "deathcoil" or key == "epidemic")
+        cdmCheck:SetShown(pageKey == "festering" or pageKey == "putrefy" or pageKey == "suddendoom" or pageKey == "deathcoil" or pageKey == "epidemic")
         cdmCheck.Text:SetText(key == "putrefy" and "Track on Cooldown Manager" or "Use Cooldown Manager (instead of action bars)")
         rescanButton:SetShown(key ~= "dnd" and key ~= "soulreaper")
         testButton:SetShown(key ~= "soulreaper")
         cdmCheck.refresh()
         activePage.refresh()
+        if key == "festeringwa" or key == "suddendoomwa" then
+            activePage.SetMode("text")
+        elseif (key == "festering" or key == "suddendoom") and activePage.SetMode then
+            activePage.SetMode("glow")
+        end
     end
 
     function panel:RefreshControls()
@@ -750,9 +1095,16 @@ function addon:CreateConfigPanel(standalone)
     testButton:SetScript("OnClick", function()
         testActive = not testActive
         if testActive then
-            if selectedKey == "festering" then addon:TestFesteringGlow()
+            if selectedKey == "festeringwa" then
+                addon:TestTextAlert("festeringScythe")
+            elseif selectedKey == "suddendoomwa" then
+                addon:TestTextAlert("suddenDoom")
+            elseif selectedKey == "festering" then addon:TestFesteringGlow()
             elseif selectedKey == "deathcoil" then addon:TestSuddenDoomGlow("deathCoil")
             elseif selectedKey == "epidemic" then addon:TestSuddenDoomGlow("epidemic")
+            elseif selectedKey == "suddendoom" then
+                addon:TestSuddenDoomGlow("deathCoil")
+                addon:TestSuddenDoomGlow("epidemic")
             elseif selectedKey == "putrefy" then addon:TestPutrefyWarning()
             elseif selectedKey == "runic" then addon:TestRunicPowerGlow()
             elseif selectedKey == "dnd" then addon:TestDnDTracker() end
@@ -779,3 +1131,4 @@ function addon:CreateConfigPanel(standalone)
     for _, page in pairs(pages) do page:Hide() end
     return panel
 end
+
