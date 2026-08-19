@@ -16,7 +16,8 @@ This is a community-maintained fork of **DK Assist** by ZachoWOW. It retains the
 - **Soul Reaper control** — choose Blizzard's normal execute glow or suppress it entirely.
 - **Four glow styles** — Pixel Glow, Autocast Shine, Button Glow, and Proc Border, with independent colours, presets, animation settings, thickness/particles, and opacity where relevant.
 - **Action Bar or Cooldown Manager** — choose the target for Festering Scythe, Sudden Doom, and Putrefy warnings; includes Rescan Bars and Test tools.
-- **Modern settings UI** — compact standalone settings window plus Blizzard AddOns integration, live previews, and Esc-to-close support.
+- **Selectable standalone themes** — Classic plus Carbon Cyan, Graphite Red, Obsidian Lime, Frosted Blue, Slate Orange, and Unholy Green. Themes restyle the standalone window without changing Blizzard's AddOns settings page.
+- **Modern settings controls** — themed dropdowns, sliders, value fields, and buttons in the standalone window, with live previews and Esc-to-close support.
 - **Convenient access** — minimap button, addon compartment entry, HidingBar / DataBroker support, and the `/dka` command.
 
 ## Installation
