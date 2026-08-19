@@ -12,6 +12,10 @@ local SUDDEN_DOOM_BUFF_ID = 81340
 -- while the live proc aura uses 81340.
 local SUDDEN_DOOM_CDM_ID = 49530
 local LESSER_GHOUL_SPELL_ID = 1254252
+-- Death and Decay appears twice in the CDM: the ability icon is a glow
+-- target, while the buff granted by standing in it is the detection source.
+local DEATH_AND_DECAY_SPELL_ID = 43265
+local DND_BUFF_SPELL_ID = 188290
 local hooked = false
 
 local function GetCDMSpellID(item)
@@ -36,9 +40,33 @@ local function LesserGhoulEnabled()
     return settings and settings.enabled and settings.lesserGhoulGlow or false
 end
 
+local function DnDBuffGlowEnabled()
+    local settings = DKAssistDB and DKAssistDB.dnd
+    return settings and settings.buffGlow or false
+end
+
+-- The tracked Death and Decay buff reports its aura ID only while the aura is
+-- active and falls back to the ability ID (43265) otherwise, so the reported
+-- spell cannot tell the buff icon apart from the ability icon.  Viewer
+-- ownership is stable in both states, so use that instead.  Only reached for
+-- items that already matched a Death and Decay spell ID, so the enumeration
+-- cost is paid on a handful of frames rather than on every refresh.
+local function IsBuffViewerItem(item)
+    for _, viewer in ipairs({ BuffIconCooldownViewer, BuffBarCooldownViewer }) do
+        local pool = viewer and viewer.itemFramePool
+        if pool and pool.EnumerateActive then
+            for active in pool:EnumerateActive() do
+                if active == item then return true end
+            end
+        end
+    end
+    return false
+end
+
 local function RegisterItem(item)
     if not DKAssistDB or (not DKAssistDB.trackCDMPutrefy and not DKAssistDB.trackCDMFestering
-        and not DKAssistDB.trackCDMSuddenDoom and not LesserGhoulEnabled()) then return end
+        and not DKAssistDB.trackCDMSuddenDoom and not LesserGhoulEnabled()
+        and not DnDBuffGlowEnabled()) then return end
     local ok, kind = pcall(function()
         -- Tracked Buffs may not expose a cooldown ID; cache their plain spell
         -- ID out of combat so their icon can still be decorated in combat.
@@ -52,6 +80,9 @@ local function RegisterItem(item)
             return "deathCoil"
         elseif LesserGhoulEnabled() and GetCDMItemSpellID(item) == LESSER_GHOUL_SPELL_ID then
             return "lesserGhoul"
+        elseif DnDBuffGlowEnabled()
+            and (spellID == DEATH_AND_DECAY_SPELL_ID or spellID == DND_BUFF_SPELL_ID) then
+            return IsBuffViewerItem(item) and "dndBuff" or "dndAbility"
         end
     end)
     if not ok then return end
@@ -64,6 +95,10 @@ local function RegisterItem(item)
         addon:RegisterCDMSuddenDoomFrame(item, kind)
     elseif kind == "lesserGhoul" then
         addon:RegisterCDMLesserGhoulFrame(item)
+    elseif kind == "dndAbility" then
+        addon:RegisterCDMDnDFrame(item)
+    elseif kind == "dndBuff" then
+        addon:RegisterCDMDnDBuffFrame(item)
     end
 end
 
@@ -89,6 +124,9 @@ local function RegisterEllesmereItem(item, euiCDM)
             return "deathCoil"
         elseif LesserGhoulEnabled() and spellID == LESSER_GHOUL_SPELL_ID then
             return "lesserGhoul"
+        elseif DnDBuffGlowEnabled()
+            and (spellID == DEATH_AND_DECAY_SPELL_ID or spellID == DND_BUFF_SPELL_ID) then
+            return IsBuffViewerItem(item) and "dndBuff" or "dndAbility"
         end
     end)
     if not ok then return end
@@ -100,6 +138,10 @@ local function RegisterEllesmereItem(item, euiCDM)
         addon:RegisterCDMSuddenDoomFrame(item, kind)
     elseif kind == "lesserGhoul" then
         addon:RegisterCDMLesserGhoulFrame(item)
+    elseif kind == "dndAbility" then
+        addon:RegisterCDMDnDFrame(item)
+    elseif kind == "dndBuff" then
+        addon:RegisterCDMDnDBuffFrame(item)
     end
 end
 

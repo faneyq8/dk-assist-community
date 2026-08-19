@@ -484,7 +484,7 @@ function addon:CreateConfigPanel(standalone)
 
     local title = CreateText(panel, "|cffcc0000DK Assist|r", 16, -14, "GameFontNormalLarge")
     local subtitle = CreateText(panel,
-        "Unholy DK alerts - Scythe, Sudden Doom, Putrefy, Runic Power & Death and Decay",
+        "DK alerts - Scythe, Sudden Doom, Putrefy, Runic Power & Death and Decay",
         16, -36, "GameFontHighlightSmall", nil, { 0.67, 0.67, 0.67 })
     panel.dkassistTitle = title
     panel.dkassistSubtitle = subtitle
@@ -593,6 +593,7 @@ function addon:CreateConfigPanel(standalone)
         if selectedKey == "suddendoom" and addon.RefreshSuddenDoomGlows then addon:RefreshSuddenDoomGlows() end
         if selectedKey == "putrefy" and addon.RefreshPutrefyWarnings then addon:RefreshPutrefyWarnings() end
         if selectedKey == "runic" and addon.UpdateRunicPowerGlow then addon:UpdateRunicPowerGlow() end
+        if selectedKey == "dnd" and addon.RefreshDnDBuffGlows then addon:RefreshDnDBuffGlows() end
     end
 
     local function RefreshPreview(page)
@@ -675,6 +676,7 @@ function addon:CreateConfigPanel(standalone)
         if key == "deathcoil" then return DKAssistDB.spells.deathCoil end
         if key == "epidemic" then return DKAssistDB.spells.epidemic end
         if key == "suddendoom" then return DKAssistDB.suddenDoomGlow end
+        if key == "dnd" then return DKAssistDB.dnd end
         return DKAssistDB.runicPower
     end
 
@@ -1131,6 +1133,7 @@ function addon:CreateConfigPanel(standalone)
         page:SetAllPoints(); page.layoutKind = "dnd"
         page.settingsCard = CreateCard(page, "Death and Decay Tracker")
         page.previewCard = CreateCard(page, "Live Preview")
+        page.buffCard = CreateCard(page, "Death and Decay buff reminder")
         AddSelector(page, page.settingsCard)
         page.enable = CreateCheck(page.settingsCard, "Enable tracker", 14, -76,
             function() return DKAssistDB.dnd.enabled end,
@@ -1148,8 +1151,39 @@ function addon:CreateConfigPanel(standalone)
             "Use Test below to show the tracker, then drag it to your preferred position. Lock it when done.",
             18, -230, "GameFontHighlightSmall", 315, { 0.64, 0.64, 0.64 })
         page.previewIcon, page.previewBar = CreatePreview(page.previewCard, addon.SPELLS.DEATH_AND_DECAY.id, false)
+
+        -- Blood only.  Glows Death and Decay whenever the 188290 buff is
+        -- missing in combat, so you know to step back into your own patch.
+        local function settings() return GlowSettingsFor("dnd") end
+        local function changed() RefreshTracking() end
+        page.buffEnable = CreateCheck(page.buffCard, "Glow when the buff is missing", 14, -38,
+            function() return settings().buffGlow end,
+            function(v) settings().buffGlow = v; changed() end)
+        page.buffHint = CreateText(page.buffCard,
+            "Blood only. Requires Death and Decay in the Cooldown Manager, under either Tracked Buffs or Tracked Bars.",
+            18, -66, "GameFontHighlightSmall", 315, { 0.64, 0.64, 0.64 })
+        local buffStyleLabel = CreateText(page.buffCard, "Glow Style:", 14, -130, "GameFontNormal")
+        page.buffDropdown = CreateDropdown(page.buffCard, 0, 0, 145,
+            function()
+                local items = {}
+                for _, glowType in ipairs(addon.GLOW_TYPES) do
+                    items[#items + 1] = { text = glowType.name, value = glowType.id }
+                end
+                return items
+            end,
+            function() return settings().glowType end,
+            function(value) settings().glowType = value; changed() end)
+        page.buffDropdown:ClearAllPoints()
+        page.buffDropdown:SetPoint("LEFT", buffStyleLabel, "RIGHT", -8, -2)
+        page.buffColor = CreateColorControl(page.buffCard, 14, -168, "Glow Color:",
+            function() return settings().color end, changed)
+        CreatePresetRow(page.buffCard, 14, -200, settings, function()
+            page.buffColor.refresh(); changed()
+        end)
+
         page.refresh = function()
             page.selector.refresh(); page.enable.refresh(); page.size.refresh(); page.always.refresh(); page.lock.refresh()
+            page.buffEnable.refresh(); page.buffDropdown.refresh(); page.buffColor.refresh()
         end
         pages.dnd = page
     end
@@ -1207,7 +1241,8 @@ function addon:CreateConfigPanel(standalone)
 
         for key, page in pairs(pages) do
             for _, card in pairs({ page.settingsCard, page.previewCard, page.warningCard, page.ghoulCard, page.appearanceCard,
-                page.textSettingsCard, page.textPreviewCard, page.textAppearanceCard, page.glowCard, page.textCard }) do
+                page.textSettingsCard, page.textPreviewCard, page.textAppearanceCard, page.glowCard, page.textCard,
+                page.buffCard }) do
                 if card then card:ClearAllPoints() end
             end
             if page.hasTextAlerts then
@@ -1279,7 +1314,10 @@ function addon:CreateConfigPanel(standalone)
                 page.settingsCard:SetPoint("BOTTOMRIGHT", page, "BOTTOMLEFT", leftWidth, 0)
                 page.previewCard:SetPoint("TOPRIGHT", page, "TOPRIGHT", 0, 0)
                 page.previewCard:SetSize(rightWidth, topHeight)
+                page.buffCard:SetPoint("TOPRIGHT", page, "TOPRIGHT", 0, lowerY)
+                page.buffCard:SetPoint("BOTTOMLEFT", page, "BOTTOMLEFT", leftWidth + gap, 0)
                 page.hint:SetWidth(math.max(210, leftWidth - 36))
+                page.buffHint:SetWidth(math.max(230, rightWidth - 36))
             elseif page.layoutKind == "soul" then
                 page.settingsCard:SetPoint("TOPLEFT", page, "TOPLEFT", 0, 0)
                 page.settingsCard:SetPoint("BOTTOMRIGHT", page, "BOTTOMRIGHT", 0, 0)
@@ -1301,7 +1339,7 @@ function addon:CreateConfigPanel(standalone)
         testActive = false; testButton:SetText("Test")
         cdmCheck:SetShown(pageKey == "festering" or pageKey == "putrefy" or pageKey == "suddendoom" or pageKey == "deathcoil" or pageKey == "epidemic")
         cdmCheck.Text:SetText(key == "putrefy" and "Track on Cooldown Manager" or "Use Cooldown Manager (instead of action bars)")
-        rescanButton:SetShown(key ~= "dnd" and key ~= "soulreaper")
+        rescanButton:SetShown(key ~= "soulreaper")
         testButton:SetShown(key ~= "soulreaper")
         cdmCheck.refresh()
         activePage.refresh()
@@ -1662,7 +1700,10 @@ function addon:CreateConfigPanel(standalone)
                 addon:TestSuddenDoomGlow("epidemic")
             elseif selectedKey == "putrefy" then addon:TestPutrefyWarning()
             elseif selectedKey == "runic" then addon:TestRunicPowerGlow()
-            elseif selectedKey == "dnd" then addon:TestDnDTracker() end
+            elseif selectedKey == "dnd" then
+                addon:TestDnDTracker()
+                addon:TestDnDBuffGlow()
+            end
             testButton:SetText("Stop Test")
         else
             addon:StopAll(); addon:StopDnDTest(); addon:StopRunicPowerGlow()
