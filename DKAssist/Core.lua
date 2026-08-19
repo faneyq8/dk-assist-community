@@ -1696,6 +1696,17 @@ end
 
 function addon:RegisterCDMDnDBuffFrame(frame)
     dndBuffFrame = frame
+    -- While the buff is inactive this row reports the ability spell ID, so an
+    -- earlier scan may have registered it as a glow target.  The detection
+    -- source must never be decorated: it is hidden exactly when the reminder
+    -- needs to be visible.
+    local overlay = cdmDnDOverlays[frame]
+    if overlay then
+        ClearDnDBuffGlow(overlay)
+        overlay:Hide()
+        overlay:SetParent(nil)
+        cdmDnDOverlays[frame] = nil
+    end
 end
 
 function addon:RefreshDnDBuffGlows()

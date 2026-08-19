@@ -45,6 +45,24 @@ local function DnDBuffGlowEnabled()
     return settings and settings.buffGlow or false
 end
 
+-- The tracked Death and Decay buff reports its aura ID only while the aura is
+-- active and falls back to the ability ID (43265) otherwise, so the reported
+-- spell cannot tell the buff icon apart from the ability icon.  Viewer
+-- ownership is stable in both states, so use that instead.  Only reached for
+-- items that already matched a Death and Decay spell ID, so the enumeration
+-- cost is paid on a handful of frames rather than on every refresh.
+local function IsBuffViewerItem(item)
+    for _, viewer in ipairs({ BuffIconCooldownViewer, BuffBarCooldownViewer }) do
+        local pool = viewer and viewer.itemFramePool
+        if pool and pool.EnumerateActive then
+            for active in pool:EnumerateActive() do
+                if active == item then return true end
+            end
+        end
+    end
+    return false
+end
+
 local function RegisterItem(item)
     if not DKAssistDB or (not DKAssistDB.trackCDMPutrefy and not DKAssistDB.trackCDMFestering
         and not DKAssistDB.trackCDMSuddenDoom and not LesserGhoulEnabled()
@@ -62,10 +80,9 @@ local function RegisterItem(item)
             return "deathCoil"
         elseif LesserGhoulEnabled() and GetCDMItemSpellID(item) == LESSER_GHOUL_SPELL_ID then
             return "lesserGhoul"
-        elseif DnDBuffGlowEnabled() and spellID == DEATH_AND_DECAY_SPELL_ID then
-            return "dndAbility"
-        elseif DnDBuffGlowEnabled() and spellID == DND_BUFF_SPELL_ID then
-            return "dndBuff"
+        elseif DnDBuffGlowEnabled()
+            and (spellID == DEATH_AND_DECAY_SPELL_ID or spellID == DND_BUFF_SPELL_ID) then
+            return IsBuffViewerItem(item) and "dndBuff" or "dndAbility"
         end
     end)
     if not ok then return end
@@ -107,10 +124,9 @@ local function RegisterEllesmereItem(item, euiCDM)
             return "deathCoil"
         elseif LesserGhoulEnabled() and spellID == LESSER_GHOUL_SPELL_ID then
             return "lesserGhoul"
-        elseif DnDBuffGlowEnabled() and spellID == DEATH_AND_DECAY_SPELL_ID then
-            return "dndAbility"
-        elseif DnDBuffGlowEnabled() and spellID == DND_BUFF_SPELL_ID then
-            return "dndBuff"
+        elseif DnDBuffGlowEnabled()
+            and (spellID == DEATH_AND_DECAY_SPELL_ID or spellID == DND_BUFF_SPELL_ID) then
+            return IsBuffViewerItem(item) and "dndBuff" or "dndAbility"
         end
     end)
     if not ok then return end
