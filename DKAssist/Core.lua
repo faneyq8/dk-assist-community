@@ -168,6 +168,9 @@ local DEFAULT_PUTREFY_SETTINGS = {
 
 addon.DEFAULT_DB = {
     seenWelcome       = false,
+    -- Visual skin for the dedicated minimap window only.  Blizzard's
+    -- Settings > AddOns canvas deliberately keeps its native appearance.
+    standaloneTheme   = "classic",
     trackCDMFestering = false,
     trackCDMPutrefy   = false,
     trackCDMSuddenDoom = false,
@@ -757,7 +760,7 @@ function addon:CreateCDMOverlays()
     end
 end
 
--- Additive CDM overlay creation â€” only creates overlays for frames not already tracked
+-- Additive CDM overlay creation — only creates overlays for frames not already tracked
 -- Called by ScanCDMSafe() to avoid disrupting active glows
 function addon:CreateCDMOverlaysAdditive()
     if not DKAssistDB.trackCDMFestering and not DKAssistDB.trackCDMPutrefy then return 0 end
@@ -1527,7 +1530,7 @@ function addon:TestDnDTracker()
         dndHideTimer = nil
     end
 
-    -- Show the frame with no swipe during test â€” just the icon for positioning
+    -- Show the frame with no swipe during test — just the icon for positioning
     dndActive = false
     dndFrame.cooldown:Clear()
     dndFrame.icon:SetDesaturated(false)
@@ -1876,6 +1879,8 @@ initFrame:SetScript("OnEvent", function(_, event)
             backgroundPattern:SetAllPoints()
             backgroundPattern:SetTexture("Interface\\DialogFrame\\UI-DialogBox-Background-Dark")
             backgroundPattern:SetVertexColor(0.16, 0.16, 0.20, 0.42)
+            window.dkassistBackgroundTexture = backgroundTexture
+            window.dkassistBackgroundPattern = backgroundPattern
             window:EnableMouse(true)
             window:SetMovable(true)
             window:RegisterForDrag("LeftButton")
@@ -1886,6 +1891,13 @@ initFrame:SetScript("OnEvent", function(_, event)
             local close = CreateFrame("Button", nil, window, "UIPanelCloseButton")
             close:SetPoint("TOPRIGHT", window, "TOPRIGHT", -4, -4)
             close:SetScript("OnClick", function() window:Hide() end)
+            window.dkassistCloseButton = close
+            local modernCloseText = close:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+            modernCloseText:SetPoint("CENTER", close, "CENTER", 0, 1)
+            modernCloseText:SetText("X")
+            modernCloseText:SetTextColor(0.62, 0.79, 1.00, 1)
+            modernCloseText:Hide()
+            window.dkassistModernCloseText = modernCloseText
 
             local standalonePanel = addon:CreateConfigPanel(true)
             standalonePanel:SetParent(window)
@@ -1893,6 +1905,9 @@ initFrame:SetScript("OnEvent", function(_, event)
             standalonePanel:SetPoint("BOTTOMRIGHT", window, "BOTTOMRIGHT", -18, 18)
             addon.standaloneSettingsWindow = window
             addon.standaloneSettingsPanel = standalonePanel
+            if standalonePanel.ApplyStandaloneTheme then
+                standalonePanel:ApplyStandaloneTheme(DKAssistDB.standaloneTheme or "classic")
+            end
             function addon:OpenStandaloneSettings()
                 window:Show()
                 standalonePanel:Show()
@@ -1904,7 +1919,7 @@ initFrame:SetScript("OnEvent", function(_, event)
             C_Timer.After(2, function() addon:ShowWelcomePopup() end)
         end
 
-        print("|cffcc0000DK Assist|r loaded â€” |cffaaaaaa/dka|r for options")
+        print("|cffcc0000DK Assist|r loaded — |cffaaaaaa/dka|r for options")
 
     elseif event == "PLAYER_SPECIALIZATION_CHANGED" then
         addon:StopAll()
@@ -1951,4 +1966,3 @@ SlashCmdList["DKASSIST"] = function(msg)
         end
     end
 end
-

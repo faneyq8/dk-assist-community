@@ -21,6 +21,55 @@ local PAGE_ITEMS = {
 local PAGE_LABEL = {}
 for _, item in ipairs(PAGE_ITEMS) do PAGE_LABEL[item.value] = item.text end
 
+local THEME_ITEMS = {
+    { text = "Classic", value = "classic" },
+    { text = "Carbon Cyan", value = "carbon" },
+    { text = "Graphite Red", value = "graphite" },
+    { text = "Obsidian Lime", value = "obsidian" },
+    { text = "Frosted Blue", value = "frosted" },
+    { text = "Slate Orange", value = "slate" },
+    { text = "Unholy Green", value = "unholy" },
+}
+
+local STANDALONE_THEMES = {
+    carbon = {
+        titleCode = "33d6e8", accent = { 0.20, 0.84, 0.91 },
+        window = { 0.010, 0.020, 0.024 }, panel = { 0.014, 0.030, 0.035 },
+        card = { 0.018, 0.040, 0.047 }, control = { 0.025, 0.080, 0.090 },
+        border = { 0.12, 0.43, 0.48 }, text = { 0.78, 0.92, 0.94 }, subtext = { 0.62, 0.74, 0.77 },
+    },
+    graphite = {
+        titleCode = "f0525a", accent = { 0.94, 0.25, 0.30 },
+        window = { 0.025, 0.026, 0.029 }, panel = { 0.040, 0.041, 0.045 },
+        card = { 0.055, 0.055, 0.060 }, control = { 0.090, 0.075, 0.080 },
+        border = { 0.42, 0.17, 0.19 }, text = { 0.92, 0.88, 0.89 }, subtext = { 0.72, 0.68, 0.69 },
+    },
+    obsidian = {
+        titleCode = "97df20", accent = { 0.58, 0.88, 0.12 },
+        window = { 0.008, 0.012, 0.009 }, panel = { 0.014, 0.022, 0.016 },
+        card = { 0.022, 0.035, 0.025 }, control = { 0.045, 0.075, 0.050 },
+        border = { 0.24, 0.42, 0.18 }, text = { 0.86, 0.92, 0.84 }, subtext = { 0.66, 0.74, 0.64 },
+    },
+    frosted = {
+        titleCode = "4da3ff", accent = { 0.30, 0.64, 1.00 },
+        window = { 0.012, 0.024, 0.040 }, panel = { 0.018, 0.035, 0.055 },
+        card = { 0.018, 0.043, 0.070 }, control = { 0.035, 0.075, 0.105 },
+        border = { 0.10, 0.25, 0.40 }, text = { 0.82, 0.90, 1.00 }, subtext = { 0.67, 0.75, 0.84 },
+    },
+    slate = {
+        titleCode = "ff861f", accent = { 1.00, 0.48, 0.08 },
+        window = { 0.045, 0.052, 0.057 }, panel = { 0.060, 0.068, 0.074 },
+        card = { 0.075, 0.083, 0.090 }, control = { 0.105, 0.105, 0.105 },
+        border = { 0.40, 0.28, 0.16 }, text = { 0.92, 0.90, 0.87 }, subtext = { 0.72, 0.70, 0.67 },
+    },
+    unholy = {
+        titleCode = "28e060", accent = { 0.16, 0.88, 0.38 },
+        window = { 0.008, 0.022, 0.014 }, panel = { 0.012, 0.038, 0.023 },
+        card = { 0.016, 0.052, 0.030 }, control = { 0.025, 0.090, 0.048 },
+        border = { 0.10, 0.40, 0.22 }, text = { 0.80, 0.96, 0.85 }, subtext = { 0.62, 0.80, 0.68 },
+    },
+}
+
 local PRESETS = {
     { 0.00, 0.90, 0.20 },
     { 0.40, 0.80, 1.00 },
@@ -75,12 +124,14 @@ local function CreateCard(parent, titleText)
     left:SetWidth(40)
     left:SetVertexColor(0.68, 0.55, 0.10, 0.75)
     left:SetPoint("RIGHT", title, "LEFT", -7, 0)
+    card.leftDivider = left
     local right = card:CreateTexture(nil, "OVERLAY")
     right:SetTexture("Interface\\Buttons\\WHITE8X8")
     right:SetHeight(1)
     right:SetWidth(40)
     right:SetVertexColor(0.68, 0.55, 0.10, 0.75)
     right:SetPoint("LEFT", title, "RIGHT", 7, 0)
+    card.rightDivider = right
     return card
 end
 
@@ -107,6 +158,156 @@ local function CreateCheck(parent, text, x, y, getter, setter)
 end
 
 local dropdownSerial = 0
+local activeStandalonePanel
+
+local function AttachModernDropdown(dd, parent, width, itemsProvider, currentProvider, setter)
+    if not activeStandalonePanel then return end
+    local panel = activeStandalonePanel
+    panel.dkassistModernDropdowns = panel.dkassistModernDropdowns or {}
+
+    local modern = CreateFrame("Button", nil, parent, "BackdropTemplate")
+    modern:SetSize(width + 28, 25)
+    modern:SetPoint("TOPLEFT", dd, "TOPLEFT", 17, -3)
+    modern:SetBackdrop({
+        bgFile = "Interface\\Buttons\\WHITE8X8",
+        edgeFile = "Interface\\Buttons\\WHITE8X8",
+        edgeSize = 1,
+    })
+    modern:SetBackdropColor(0.035, 0.075, 0.105, 1)
+    modern:SetBackdropBorderColor(0.20, 0.36, 0.48, 1)
+    modern:Hide()
+
+    modern.label = modern:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    modern.label:SetPoint("LEFT", modern, "LEFT", 10, 0)
+    modern.label:SetPoint("RIGHT", modern, "RIGHT", -25, 0)
+    modern.label:SetJustifyH("LEFT")
+    modern.arrow = modern:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    modern.arrow:SetPoint("RIGHT", modern, "RIGHT", -8, 1)
+    modern.arrow:SetText("v")
+    modern.arrow:SetTextColor(0.42, 0.69, 0.86, 1)
+
+    local menu = CreateFrame("Frame", nil, UIParent, "BackdropTemplate")
+    menu:SetFrameStrata("TOOLTIP")
+    menu:SetClampedToScreen(true)
+    menu:SetBackdrop({
+        bgFile = "Interface\\Buttons\\WHITE8X8",
+        edgeFile = "Interface\\Buttons\\WHITE8X8",
+        edgeSize = 1,
+    })
+    menu:SetBackdropColor(0.025, 0.065, 0.090, 0.99)
+    menu:SetBackdropBorderColor(0.18, 0.55, 0.68, 1)
+    menu:SetPoint("TOPLEFT", modern, "BOTTOMLEFT", 0, -2)
+    menu:SetWidth(width + 28)
+    menu:Hide()
+    modern.menu = menu
+    modern.rows = {}
+
+    local function CloseMenu()
+        menu:Hide()
+        modern.arrow:SetText("v")
+    end
+
+    local function RefreshRows()
+        local items = itemsProvider()
+        local current = currentProvider()
+        local palette = modern.palette or STANDALONE_THEMES.frosted
+        local rowHeight = 22
+        menu:SetHeight(math.max(8, (#items * rowHeight) + 6))
+        for index, item in ipairs(items) do
+            local itemValue = item.value
+            local itemText = item.text
+            local row = modern.rows[index]
+            if not row then
+                row = CreateFrame("Button", nil, menu, "BackdropTemplate")
+                row:SetHeight(rowHeight)
+                row:SetPoint("TOPLEFT", menu, "TOPLEFT", 3, -3 - ((index - 1) * rowHeight))
+                row:SetPoint("RIGHT", menu, "RIGHT", -3, 0)
+                row:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8X8" })
+                row.text = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+                row.text:SetPoint("LEFT", row, "LEFT", 10, 0)
+                row.text:SetPoint("RIGHT", row, "RIGHT", -8, 0)
+                row.text:SetJustifyH("LEFT")
+                row:SetScript("OnEnter", function(self)
+                    local p = modern.palette or STANDALONE_THEMES.frosted
+                    self:SetBackdropColor(p.accent[1] * 0.20, p.accent[2] * 0.20, p.accent[3] * 0.20, 1)
+                end)
+                row:SetScript("OnLeave", function(self)
+                    local p = modern.palette or STANDALONE_THEMES.frosted
+                    self:SetBackdropColor(self.selected and p.accent[1] * 0.14 or 0,
+                        self.selected and p.accent[2] * 0.14 or 0,
+                        self.selected and p.accent[3] * 0.14 or 0, self.selected and 1 or 0)
+                end)
+                modern.rows[index] = row
+            end
+            row.selected = current == itemValue
+            row.text:SetText(itemText)
+            row.text:SetTextColor(row.selected and palette.accent[1] or palette.text[1],
+                row.selected and palette.accent[2] or palette.text[2],
+                row.selected and palette.accent[3] or palette.text[3], 1)
+            row:SetBackdropColor(row.selected and palette.accent[1] * 0.14 or 0,
+                row.selected and palette.accent[2] * 0.14 or 0,
+                row.selected and palette.accent[3] * 0.14 or 0, row.selected and 1 or 0)
+            row:SetScript("OnClick", function()
+                setter(itemValue)
+                UIDropDownMenu_SetText(dd, itemText)
+                UIDropDownMenu_SetSelectedValue(dd, itemValue)
+                modern.label:SetText(itemText)
+                CloseMenu()
+            end)
+            row:Show()
+        end
+        for index = #items + 1, #modern.rows do modern.rows[index]:Hide() end
+    end
+
+    modern:SetScript("OnClick", function()
+        if menu:IsShown() then
+            CloseMenu()
+        else
+            for _, other in ipairs(panel.dkassistModernDropdowns) do
+                if other ~= modern and other.menu then other.menu:Hide() end
+            end
+            RefreshRows()
+            menu:Show()
+            modern.arrow:SetText("^")
+        end
+    end)
+    modern:SetScript("OnEnter", function(self)
+        local p = modern.palette or STANDALONE_THEMES.frosted
+        self:SetBackdropBorderColor(p.accent[1], p.accent[2], p.accent[3], 1)
+    end)
+    modern:SetScript("OnLeave", function(self)
+        local p = modern.palette or STANDALONE_THEMES.frosted
+        self:SetBackdropBorderColor(p.border[1], p.border[2], p.border[3], 1)
+    end)
+
+    modern.refresh = function()
+        local current = currentProvider()
+        local label = current
+        for _, item in ipairs(itemsProvider()) do
+            if item.value == current then label = item.text break end
+        end
+        modern.label:SetText(label or "")
+        if menu:IsShown() then RefreshRows() end
+    end
+    modern.SetModernMode = function(_, enabled, palette)
+        CloseMenu()
+        if palette then
+            modern.palette = palette
+            modern:SetBackdropColor(palette.control[1], palette.control[2], palette.control[3], 1)
+            modern:SetBackdropBorderColor(palette.border[1], palette.border[2], palette.border[3], 1)
+            modern.label:SetTextColor(palette.text[1], palette.text[2], palette.text[3], 1)
+            modern.arrow:SetTextColor(palette.accent[1], palette.accent[2], palette.accent[3], 1)
+            menu:SetBackdropColor(palette.control[1] * 0.72, palette.control[2] * 0.72, palette.control[3] * 0.72, 0.99)
+            menu:SetBackdropBorderColor(palette.border[1], palette.border[2], palette.border[3], 1)
+        end
+        dd:SetShown(not enabled)
+        modern:SetShown(enabled)
+        if enabled then modern.refresh() end
+    end
+    dd.dkassistModern = modern
+    table.insert(panel.dkassistModernDropdowns, modern)
+end
+
 local function CreateDropdown(parent, x, y, width, itemsProvider, currentProvider, setter)
     dropdownSerial = dropdownSerial + 1
     local dd = CreateFrame("Frame", "DKAssistV2Dropdown" .. dropdownSerial, parent, "UIDropDownMenuTemplate")
@@ -139,7 +340,9 @@ local function CreateDropdown(parent, x, y, width, itemsProvider, currentProvide
         end
         UIDropDownMenu_SetText(dd, label or "")
         UIDropDownMenu_SetSelectedValue(dd, current)
+        if dd.dkassistModern then dd.dkassistModern.refresh() end
     end
+    AttachModernDropdown(dd, parent, width, itemsProvider, currentProvider, setter)
     return dd
 end
 
@@ -273,6 +476,7 @@ end
 
 function addon:CreateConfigPanel(standalone)
     local panel = CreateFrame("Frame", nil, nil, "BackdropTemplate")
+    activeStandalonePanel = standalone and panel or nil
     panel.name = "DK Assist"
     local prefix = standalone and "DKAssistStandaloneV2" or "DKAssistSettingsV2"
     panel:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8X8" })
@@ -282,6 +486,8 @@ function addon:CreateConfigPanel(standalone)
     local subtitle = CreateText(panel,
         "Unholy DK alerts - Scythe, Sudden Doom, Putrefy, Runic Power & Death and Decay",
         16, -36, "GameFontHighlightSmall", nil, { 0.67, 0.67, 0.67 })
+    panel.dkassistTitle = title
+    panel.dkassistSubtitle = subtitle
 
     local selectedKey = "festering"
     local pages = {}
@@ -310,6 +516,26 @@ function addon:CreateConfigPanel(standalone)
     minimapCheck:ClearAllPoints()
     minimapCheck:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -170, -12)
     minimapCheck.Text:SetFontObject("GameFontHighlightSmall")
+
+    -- The theme selector belongs only to the dedicated minimap window.  The
+    -- embedded Blizzard Settings canvas remains completely untouched.
+    local themeLabel, themeDropdown
+    if standalone then
+        themeLabel = CreateText(panel, "Theme:", 0, -16, "GameFontHighlightSmall")
+        themeLabel:ClearAllPoints()
+        themeLabel:SetPoint("LEFT", title, "RIGHT", 18, 0)
+        themeDropdown = CreateDropdown(panel, 0, 0, 112,
+            function() return THEME_ITEMS end,
+            function() return DKAssistDB.standaloneTheme or "classic" end,
+            function(value)
+                DKAssistDB.standaloneTheme = value
+                panel:ApplyStandaloneTheme(value)
+            end)
+        themeDropdown:ClearAllPoints()
+        themeDropdown:SetPoint("LEFT", themeLabel, "RIGHT", -9, 0)
+        panel.dkassistThemeLabel = themeLabel
+        panel.dkassistThemeDropdown = themeDropdown
+    end
 
     local pageHolder = CreateFrame("Frame", nil, panel)
     pageHolder:SetPoint("TOPLEFT", panel, "TOPLEFT", 10, -58)
@@ -1088,8 +1314,337 @@ function addon:CreateConfigPanel(standalone)
 
     function panel:RefreshControls()
         minimapCheck.refresh()
+        if themeDropdown then themeDropdown.refresh() end
         LayoutPages()
         self:ShowPage(selectedKey)
+    end
+
+    -- Modern skinning is intentionally runtime-only: no command, position,
+    -- page layout, or gameplay setting is changed.  It is applied solely to
+    -- the standalone panel and can be switched back to Classic immediately.
+    local function WalkRegions(frame, callback)
+        if not frame then return end
+        for _, region in ipairs({ frame:GetRegions() }) do callback(region) end
+        for _, child in ipairs({ frame:GetChildren() }) do
+            callback(child)
+            WalkRegions(child, callback)
+        end
+    end
+
+    local function SetButtonSkin(button, modern, palette)
+        if not button or button:GetObjectType() ~= "Button" then return end
+        if not button:GetText() or button:GetText() == "" then return end
+        if not button._dkassistThemeReady then
+            button._dkassistThemeReady = true
+            button._dkassistOriginalNormal = button:GetNormalTexture()
+            button._dkassistOriginalPushed = button:GetPushedTexture()
+            button._dkassistOriginalHighlight = button:GetHighlightTexture()
+            button._dkassistOriginalNormalAlpha = button._dkassistOriginalNormal and button._dkassistOriginalNormal:GetAlpha() or 1
+            button._dkassistOriginalPushedAlpha = button._dkassistOriginalPushed and button._dkassistOriginalPushed:GetAlpha() or 1
+            button._dkassistOriginalHighlightAlpha = button._dkassistOriginalHighlight and button._dkassistOriginalHighlight:GetAlpha() or 1
+            if button:GetFontString() then
+                button._dkassistOriginalFontColor = { button:GetFontString():GetTextColor() }
+            end
+
+            local background = button:CreateTexture(nil, "BACKGROUND")
+            background:SetPoint("TOPLEFT", button, "TOPLEFT", 2, -2)
+            background:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", -2, 2)
+            background:SetTexture("Interface\\Buttons\\WHITE8X8")
+            background:Hide()
+            button._dkassistModernButtonBackground = background
+
+            local highlight = button:CreateTexture(nil, "ARTWORK")
+            highlight:SetPoint("TOPLEFT", button, "TOPLEFT", 2, -2)
+            highlight:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", -2, 2)
+            highlight:SetTexture("Interface\\Buttons\\WHITE8X8")
+            highlight:Hide()
+            button._dkassistModernButtonHighlight = highlight
+
+            button:HookScript("OnEnter", function(self)
+                if self._dkassistModernActive then self._dkassistModernButtonHighlight:Show() end
+            end)
+            button:HookScript("OnLeave", function(self)
+                if self._dkassistModernActive then self._dkassistModernButtonHighlight:Hide() end
+            end)
+            button:HookScript("OnMouseDown", function(self)
+                if self._dkassistModernActive and self._dkassistThemePalette then
+                    local p = self._dkassistThemePalette
+                    self._dkassistModernButtonBackground:SetVertexColor(
+                        p.accent[1] * 0.42, p.accent[2] * 0.42, p.accent[3] * 0.42, 1)
+                end
+            end)
+            button:HookScript("OnMouseUp", function(self)
+                if self._dkassistModernActive and self._dkassistThemePalette then
+                    local p = self._dkassistThemePalette
+                    self._dkassistModernButtonBackground:SetVertexColor(
+                        p.control[1], p.control[2], p.control[3], 1)
+                end
+            end)
+        end
+        if modern then
+            palette = palette or STANDALONE_THEMES.frosted
+            button._dkassistModernActive = true
+            button._dkassistThemePalette = palette
+            if button._dkassistOriginalNormal then button._dkassistOriginalNormal:SetAlpha(0) end
+            if button._dkassistOriginalPushed then button._dkassistOriginalPushed:SetAlpha(0) end
+            if button._dkassistOriginalHighlight then button._dkassistOriginalHighlight:SetAlpha(0) end
+            button._dkassistModernButtonBackground:SetVertexColor(
+                palette.control[1], palette.control[2], palette.control[3], 1)
+            button._dkassistModernButtonHighlight:SetVertexColor(
+                palette.accent[1], palette.accent[2], palette.accent[3], 0.24)
+            button._dkassistModernButtonBackground:Show()
+            local fs = button:GetFontString()
+            if fs then fs:SetTextColor(palette.text[1], palette.text[2], palette.text[3], 1) end
+        else
+            button._dkassistModernActive = false
+            button._dkassistThemePalette = nil
+            button._dkassistModernButtonBackground:Hide()
+            button._dkassistModernButtonHighlight:Hide()
+            if button._dkassistOriginalNormal then button._dkassistOriginalNormal:SetAlpha(button._dkassistOriginalNormalAlpha) end
+            if button._dkassistOriginalPushed then button._dkassistOriginalPushed:SetAlpha(button._dkassistOriginalPushedAlpha) end
+            if button._dkassistOriginalHighlight then button._dkassistOriginalHighlight:SetAlpha(button._dkassistOriginalHighlightAlpha) end
+            button:SetNormalFontObject("GameFontNormal")
+            if button._dkassistOriginalFontColor and button:GetFontString() then
+                button:GetFontString():SetTextColor(unpack(button._dkassistOriginalFontColor))
+            end
+        end
+    end
+
+    local function SetSliderSkin(slider, modern, palette)
+        if not slider or slider:GetObjectType() ~= "Slider" then return end
+        if not slider._dkassistOriginalTextures then
+            slider._dkassistOriginalTextures = {}
+            for _, region in ipairs({ slider:GetRegions() }) do
+                if region:GetObjectType() == "Texture" then
+                    table.insert(slider._dkassistOriginalTextures, region)
+                end
+            end
+            local thumb = slider:GetThumbTexture()
+            if thumb then
+                slider._dkassistOriginalThumb = {
+                    texture = thumb:GetTexture(),
+                    coords = { thumb:GetTexCoord() },
+                    width = thumb:GetWidth(),
+                    height = thumb:GetHeight(),
+                }
+            end
+        end
+        if not slider._dkassistModernTrack then
+            local track = slider:CreateTexture(nil, "BACKGROUND")
+            track:SetColorTexture(0.10, 0.18, 0.24, 1)
+            track:SetHeight(4)
+            track:SetPoint("LEFT", slider, "LEFT", 2, 0)
+            track:SetPoint("RIGHT", slider, "RIGHT", -2, 0)
+            track:Hide()
+            slider._dkassistModernTrack = track
+            local fill = slider:CreateTexture(nil, "BORDER")
+            fill:SetColorTexture(0.16, 0.62, 0.90, 1)
+            fill:SetHeight(4)
+            fill:SetPoint("LEFT", slider, "LEFT", 2, 0)
+            fill:Hide()
+            slider._dkassistModernFill = fill
+        end
+        if modern then
+            palette = palette or STANDALONE_THEMES.frosted
+            for _, texture in ipairs(slider._dkassistOriginalTextures) do texture:Hide() end
+            slider:SetThumbTexture("Interface\\Buttons\\WHITE8X8")
+            local thumb = slider:GetThumbTexture()
+            if thumb then
+                thumb:SetSize(10, 14)
+                thumb:SetVertexColor(palette.accent[1], palette.accent[2], palette.accent[3], 1)
+                thumb:Show()
+            end
+            slider._dkassistModernTrack:Show()
+            slider._dkassistModernTrack:SetColorTexture(palette.border[1], palette.border[2], palette.border[3], 1)
+            slider._dkassistModernFill:SetColorTexture(palette.accent[1], palette.accent[2], palette.accent[3], 1)
+            slider._dkassistModernFill:ClearAllPoints()
+            slider._dkassistModernFill:SetPoint("LEFT", slider, "LEFT", 2, 0)
+            if thumb then
+                slider._dkassistModernFill:SetPoint("RIGHT", thumb, "CENTER", 0, 0)
+            else
+                slider._dkassistModernFill:SetPoint("RIGHT", slider, "CENTER", 0, 0)
+            end
+            slider._dkassistModernFill:Show()
+        else
+            slider._dkassistModernTrack:Hide()
+            slider._dkassistModernFill:Hide()
+            for _, texture in ipairs(slider._dkassistOriginalTextures) do texture:Show() end
+            local saved = slider._dkassistOriginalThumb
+            if saved and saved.texture then
+                slider:SetThumbTexture(saved.texture)
+                local thumb = slider:GetThumbTexture()
+                if thumb then
+                    if saved.coords and #saved.coords >= 4 then thumb:SetTexCoord(unpack(saved.coords)) end
+                    thumb:SetSize(saved.width, saved.height)
+                    thumb:SetVertexColor(1, 1, 1, 1)
+                    thumb:Show()
+                end
+            end
+        end
+    end
+
+    local function SetEditBoxSkin(edit, modern, palette)
+        if not edit or edit:GetObjectType() ~= "EditBox" then return end
+        if not edit._dkassistOriginalTextures then
+            edit._dkassistOriginalTextures = {}
+            for _, region in ipairs({ edit:GetRegions() }) do
+                if region:GetObjectType() == "Texture" then
+                    table.insert(edit._dkassistOriginalTextures, region)
+                end
+            end
+        end
+        if not edit._dkassistModernBackground then
+            local bg = edit:CreateTexture(nil, "BACKGROUND")
+            bg:SetPoint("TOPLEFT", edit, "TOPLEFT", -3, 2)
+            bg:SetPoint("BOTTOMRIGHT", edit, "BOTTOMRIGHT", 3, -2)
+            bg:SetColorTexture(0.035, 0.075, 0.105, 1)
+            bg:Hide()
+            edit._dkassistModernBackground = bg
+            local border = edit:CreateTexture(nil, "BORDER")
+            border:SetPoint("TOPLEFT", bg, "TOPLEFT", -1, 1)
+            border:SetPoint("BOTTOMRIGHT", bg, "BOTTOMRIGHT", 1, -1)
+            border:SetColorTexture(0.18, 0.36, 0.48, 1)
+            bg:SetDrawLayer("BACKGROUND", 1)
+            border:SetDrawLayer("BACKGROUND", 0)
+            border:Hide()
+            edit._dkassistModernBorder = border
+        end
+        if modern then
+            palette = palette or STANDALONE_THEMES.frosted
+            for _, texture in ipairs(edit._dkassistOriginalTextures) do texture:Hide() end
+            edit._dkassistModernBackground:SetColorTexture(palette.control[1], palette.control[2], palette.control[3], 1)
+            edit._dkassistModernBorder:SetColorTexture(palette.border[1], palette.border[2], palette.border[3], 1)
+            edit._dkassistModernBorder:Show()
+            edit._dkassistModernBackground:Show()
+            edit:SetTextColor(palette.text[1], palette.text[2], palette.text[3], 1)
+        else
+            edit._dkassistModernBorder:Hide()
+            edit._dkassistModernBackground:Hide()
+            for _, texture in ipairs(edit._dkassistOriginalTextures) do texture:Show() end
+            edit:SetTextColor(1, 1, 1, 1)
+        end
+    end
+
+    function panel:ApplyStandaloneTheme(themeKey)
+        if not standalone then return end
+        if themeKey ~= "classic" and not STANDALONE_THEMES[themeKey] then themeKey = "classic" end
+        DKAssistDB.standaloneTheme = themeKey
+        local palette = STANDALONE_THEMES[themeKey]
+        local modern = palette ~= nil
+        local window = self:GetParent()
+
+        if modern then
+            self:SetBackdropColor(palette.panel[1], palette.panel[2], palette.panel[3], 1)
+            if window and window.SetBackdrop then
+                window:SetBackdrop({
+                    bgFile = "Interface\\Buttons\\WHITE8X8",
+                    edgeFile = "Interface\\Buttons\\WHITE8X8",
+                    edgeSize = 1,
+                })
+                window:SetBackdropColor(palette.window[1], palette.window[2], palette.window[3], 1)
+                window:SetBackdropBorderColor(palette.border[1], palette.border[2], palette.border[3], 1)
+                if window.dkassistBackgroundTexture then
+                    window.dkassistBackgroundTexture:SetColorTexture(palette.window[1], palette.window[2], palette.window[3], 1)
+                end
+                if window.dkassistBackgroundPattern then window.dkassistBackgroundPattern:Hide() end
+                if window.dkassistCloseButton then
+                    local normal = window.dkassistCloseButton:GetNormalTexture()
+                    local pushed = window.dkassistCloseButton:GetPushedTexture()
+                    local highlight = window.dkassistCloseButton:GetHighlightTexture()
+                    if normal then normal:Hide() end
+                    if pushed then pushed:Hide() end
+                    if highlight then highlight:Hide() end
+                end
+                if window.dkassistModernCloseText then
+                    window.dkassistModernCloseText:SetTextColor(palette.accent[1], palette.accent[2], palette.accent[3], 1)
+                    window.dkassistModernCloseText:Show()
+                end
+            end
+            title:SetText("|cff" .. palette.titleCode .. "DK Assist|r")
+            subtitle:SetTextColor(palette.subtext[1], palette.subtext[2], palette.subtext[3], 1)
+        else
+            self:SetBackdropColor(0.008, 0.008, 0.012, 1)
+            if window and window.SetBackdrop then
+                window:SetBackdrop({
+                    bgFile = "Interface\\Buttons\\WHITE8X8",
+                    edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
+                    tile = true, tileSize = 32, edgeSize = 32,
+                    insets = { left = 11, right = 12, top = 12, bottom = 11 },
+                })
+                window:SetBackdropColor(0.012, 0.012, 0.018, 1)
+                window:SetBackdropBorderColor(0.35, 0.35, 0.35, 1)
+                if window.dkassistBackgroundTexture then
+                    window.dkassistBackgroundTexture:SetColorTexture(0.012, 0.012, 0.018, 1)
+                end
+                if window.dkassistBackgroundPattern then window.dkassistBackgroundPattern:Show() end
+                if window.dkassistCloseButton then
+                    local normal = window.dkassistCloseButton:GetNormalTexture()
+                    local pushed = window.dkassistCloseButton:GetPushedTexture()
+                    local highlight = window.dkassistCloseButton:GetHighlightTexture()
+                    if normal then normal:Show() end
+                    if pushed then pushed:Show() end
+                    if highlight then highlight:Show() end
+                end
+                if window.dkassistModernCloseText then window.dkassistModernCloseText:Hide() end
+            end
+            title:SetText("|cffcc0000DK Assist|r")
+            subtitle:SetTextColor(0.67, 0.67, 0.67, 1)
+        end
+
+        WalkRegions(self, function(object)
+            local objectType = object.GetObjectType and object:GetObjectType()
+            if objectType == "Button" then
+                SetButtonSkin(object, modern, palette)
+            elseif objectType == "Slider" then
+                SetSliderSkin(object, modern, palette)
+            elseif objectType == "EditBox" then
+                SetEditBoxSkin(object, modern, palette)
+            elseif objectType == "FontString" then
+                local fontObject = object:GetFontObject()
+                if modern then
+                    if not object._dkassistOriginalTextColor then
+                        object._dkassistOriginalTextColor = { object:GetTextColor() }
+                    end
+                    -- Keep colored preview alerts and user-selected alert
+                    -- colors intact; only stock configuration fonts change.
+                    if fontObject == GameFontNormal or fontObject == GameFontNormalSmall then
+                        object:SetTextColor(palette.accent[1], palette.accent[2], palette.accent[3], 1)
+                    elseif fontObject == GameFontHighlightSmall then
+                        object:SetTextColor(palette.subtext[1], palette.subtext[2], palette.subtext[3], 1)
+                    end
+                elseif object._dkassistOriginalTextColor then
+                    object:SetTextColor(unpack(object._dkassistOriginalTextColor))
+                end
+            end
+        end)
+
+        -- Cards are the only BackdropTemplate frames with these precise base
+        -- colors, so they can be recolored without touching sliders/previews.
+        for _, page in pairs(pages) do
+            for _, card in pairs({ page.settingsCard, page.previewCard, page.warningCard, page.ghoulCard,
+                page.appearanceCard, page.textSettingsCard, page.textPreviewCard,
+                page.textAppearanceCard, page.glowCard, page.textCard }) do
+                if card and card.SetBackdropColor then
+                    if modern then
+                        card:SetBackdropColor(palette.card[1], palette.card[2], palette.card[3], 0.98)
+                        card:SetBackdropBorderColor(palette.border[1], palette.border[2], palette.border[3], 1)
+                        if card.title then card.title:SetTextColor(palette.accent[1], palette.accent[2], palette.accent[3], 1) end
+                        if card.leftDivider then card.leftDivider:SetVertexColor(palette.accent[1], palette.accent[2], palette.accent[3], 0.72) end
+                        if card.rightDivider then card.rightDivider:SetVertexColor(palette.accent[1], palette.accent[2], palette.accent[3], 0.72) end
+                    else
+                        card:SetBackdropColor(0.012, 0.012, 0.018, 0.98)
+                        card:SetBackdropBorderColor(0.25, 0.25, 0.27, 1)
+                        if card.title then card.title:SetTextColor(1.00, 0.82, 0.00, 1) end
+                        if card.leftDivider then card.leftDivider:SetVertexColor(0.68, 0.55, 0.10, 0.75) end
+                        if card.rightDivider then card.rightDivider:SetVertexColor(0.68, 0.55, 0.10, 0.75) end
+                    end
+                end
+            end
+        end
+        for _, dropdown in ipairs(self.dkassistModernDropdowns or {}) do
+            dropdown:SetModernMode(modern, palette)
+        end
+        if themeDropdown then themeDropdown.refresh() end
     end
 
     testButton:SetScript("OnClick", function()
@@ -1117,18 +1672,24 @@ function addon:CreateConfigPanel(standalone)
 
     panel:SetScript("OnShow", function(self)
         C_Timer.After(0, function()
-            if self:IsShown() then self:RefreshControls() end
+            if self:IsShown() then
+                if standalone then self:ApplyStandaloneTheme(DKAssistDB.standaloneTheme or "classic") end
+                self:RefreshControls()
+            end
         end)
     end)
     panel:SetScript("OnHide", function()
         StopPreview(activePage)
         testActive = false; testButton:SetText("Test")
+        for _, dropdown in ipairs(panel.dkassistModernDropdowns or {}) do
+            if dropdown.menu then dropdown.menu:Hide() end
+        end
     end)
     panel:SetScript("OnSizeChanged", function()
         if panel:IsShown() then LayoutPages() end
     end)
 
     for _, page in pairs(pages) do page:Hide() end
+    activeStandalonePanel = nil
     return panel
 end
-
