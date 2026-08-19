@@ -28,7 +28,7 @@ addon.SPELLS = {
         id   = 43265,
         name = "Death and Decay",
         icon = 136144,
-        key  = nil,
+        key  = "deathAndDecay",
     },
     SOUL_REAPER = {
         id   = 343294,
@@ -201,6 +201,18 @@ addon.DEFAULT_DB = {
         locked     = false,
         alwaysShow = false,
         position   = nil,  -- {point, relPoint, x, y}
+        -- Blood-only reminder while the Death and Decay buff (188290) is
+        -- missing.  Opt-in, exactly like the Lesser Ghoul reminder.
+        buffGlow   = false,
+        glowType   = "pixel",
+        color      = {r = 1.0, g = 0.2, b = 0.2},
+        alpha      = 1.0,
+        speed      = 0.25,
+        lines      = 8,
+        thickness  = 2,
+        particles  = 4,
+        scale      = 1.0,
+        border     = false,
     },
     soulReaper = {
         suppressMode = "off",  -- "off", "cooldown", "always"
@@ -1379,6 +1391,7 @@ function addon:StopAll()
     StopFesteringGlow()
     StopPutrefyWarning()
     addon:StopSuddenDoomGlows()
+    addon:StopDnDBuffGlow()
 end
 
 -- -------------------------------------------------------
@@ -1563,6 +1576,173 @@ function addon:RefreshDnDAlwaysShow()
     if not dndFrame then CreateDnDFrame() end
     ApplyDnDSettings()
 end
+
+-- -------------------------------------------------------
+-- Death and Decay Buff Reminder (Blood)
+-- -------------------------------------------------------
+-- Standing inside your own Death and Decay grants buff 188290.  That aura is
+-- secret in 12.1 just like Lesser Ghoul, so watch the visibility of its
+-- tracked Cooldown Manager icon rather than reading the aura directly.  With
+-- no such icon registered the reminder simply stays silent.
+local BLOOD_SPEC_ID = 250
+
+local dndBuffOverlays   = {}
+local cdmDnDOverlays    = {}
+local dndBuffFrame      = nil
+local dndBuffGlowActive = false
+local isBloodSpec       = false
+
+function addon:RefreshBloodSpec()
+    local ok, specID = pcall(function()
+        local index = (C_SpecializationInfo and C_SpecializationInfo.GetSpecialization
+            and C_SpecializationInfo.GetSpecialization())
+            or (GetSpecialization and GetSpecialization())
+        if not index then return nil end
+        if C_SpecializationInfo and C_SpecializationInfo.GetSpecializationInfo then
+            return C_SpecializationInfo.GetSpecializationInfo(index)
+        end
+        return GetSpecializationInfo and GetSpecializationInfo(index) or nil
+    end)
+    isBloodSpec = (ok and specID == BLOOD_SPEC_ID) or false
+end
+
+function addon:IsBloodSpec()
+    return isBloodSpec
+end
+
+local function ClearDnDBuffGlow(frame)
+    if not frame or not frame._glowActive then return end
+    local glowType = addon:GetGlowTypeByID(DKAssistDB.dnd.glowType)
+    if glowType and glowType.stop then pcall(glowType.stop, frame) end
+    frame._glowActive = false
+end
+
+local function ApplyDnDBuffGlow(frame)
+    if not frame or frame._glowActive or not frame:IsVisible() then return end
+    local settings = DKAssistDB.dnd
+    local glowType = addon:GetGlowTypeByID(settings.glowType)
+    if glowType and glowType.start then
+        local ok = pcall(glowType.start, frame, settings)
+        if ok then frame._glowActive = true end
+    end
+end
+
+function addon:StopDnDBuffGlow()
+    dndBuffGlowActive = false
+    local function hideOverlay(overlay)
+        ClearDnDBuffGlow(overlay)
+        overlay:Hide()
+    end
+    for _, overlay in pairs(dndBuffOverlays) do hideOverlay(overlay) end
+    for _, overlay in pairs(cdmDnDOverlays)  do hideOverlay(overlay) end
+    -- The standalone tracker is glowed directly; it has no overlay child.
+    ClearDnDBuffGlow(dndFrame)
+end
+
+function addon:ShowDnDBuffGlow()
+    dndBuffGlowActive = true
+    local settings = DKAssistDB and DKAssistDB.dnd
+    if not settings or not settings.buffGlow then return end
+
+    local function applyOverlay(overlay)
+        local target = overlay._targetFrame
+        -- Never decorate a hidden or recycled frame.
+        if target and target:IsVisible() then
+            overlay:Show()
+            ApplyDnDBuffGlow(overlay)
+        else
+            ClearDnDBuffGlow(overlay)
+            overlay:Hide()
+        end
+    end
+
+    for _, overlay in pairs(dndBuffOverlays) do applyOverlay(overlay) end
+    for _, overlay in pairs(cdmDnDOverlays)  do applyOverlay(overlay) end
+    if dndFrame and dndFrame:IsShown() then
+        ApplyDnDBuffGlow(dndFrame)
+    else
+        ClearDnDBuffGlow(dndFrame)
+    end
+end
+
+-- Action-bar targets.  ButtonScanner only reports Death and Decay because
+-- SPELLS.DEATH_AND_DECAY now carries the "deathAndDecay" key.
+function addon:CreateDnDBuffOverlays()
+    for _, overlay in pairs(dndBuffOverlays) do
+        ClearDnDBuffGlow(overlay)
+        overlay:Hide()
+        overlay:SetParent(nil)
+    end
+    wipe(dndBuffOverlays)
+
+    local buttons = (addon.trackedButtons or {}).deathAndDecay
+    if buttons then
+        for _, button in ipairs(buttons) do
+            dndBuffOverlays[button] = CreateOverlay(button, "deathAndDecay")
+        end
+    end
+
+    if dndBuffGlowActive then addon:ShowDnDBuffGlow() end
+end
+
+-- The Cooldown Manager exposes two distinct frames here: the Death and Decay
+-- ability icon (43265) is a glow target, while the buff icon (188290) is the
+-- detection source.  CDMHook.lua routes each to its own function below.
+function addon:RegisterCDMDnDFrame(frame)
+    if cdmDnDOverlays[frame] then return end
+    cdmDnDOverlays[frame] = CreateOverlay(frame, "deathAndDecay")
+    if dndBuffGlowActive then addon:ShowDnDBuffGlow() end
+end
+
+function addon:RegisterCDMDnDBuffFrame(frame)
+    dndBuffFrame = frame
+end
+
+function addon:RefreshDnDBuffGlows()
+    if dndBuffGlowActive then
+        addon:StopDnDBuffGlow()
+        addon:ShowDnDBuffGlow()
+    end
+end
+
+function addon:TestDnDBuffGlow()
+    local shown = 0
+    local function force(overlay)
+        local target = overlay._targetFrame
+        if target and target:IsVisible() then
+            overlay:Show()
+            ApplyDnDBuffGlow(overlay)
+            shown = shown + 1
+        end
+    end
+    for _, overlay in pairs(dndBuffOverlays) do force(overlay) end
+    for _, overlay in pairs(cdmDnDOverlays)  do force(overlay) end
+    if dndFrame and dndFrame:IsShown() then
+        ApplyDnDBuffGlow(dndFrame)
+        shown = shown + 1
+    end
+    return shown
+end
+
+-- The buff icon is hidden exactly while the player is outside their own
+-- Death and Decay.  Check ten times per second and act only on a change.
+local dndBuffWatcher = CreateFrame("Frame")
+local dndBuffElapsed = 0
+dndBuffWatcher:SetScript("OnUpdate", function(_, elapsed)
+    dndBuffElapsed = dndBuffElapsed + elapsed
+    if dndBuffElapsed < 0.10 then return end
+    dndBuffElapsed = 0
+
+    local settings = DKAssistDB and DKAssistDB.dnd
+    local active = settings and settings.buffGlow and isBloodSpec and dndBuffFrame
+        and InCombatLockdown() and not dndBuffFrame:IsShown() or false
+
+    if active and not dndBuffGlowActive then
+        addon:ShowDnDBuffGlow()
+    elseif not active and dndBuffGlowActive then
+        addon:StopDnDBuffGlow()
+    end
+end)
 
 -- -------------------------------------------------------
 -- Soul Reaper Glow Suppression
@@ -1816,7 +1996,9 @@ initFrame:SetScript("OnEvent", function(_, event)
             DKAssistDB.dnd = CopyTable(addon.DEFAULT_DB.dnd)
         else
             for k, v in pairs(addon.DEFAULT_DB.dnd) do
-                if DKAssistDB.dnd[k] == nil then DKAssistDB.dnd[k] = v end
+                if DKAssistDB.dnd[k] == nil then
+                    DKAssistDB.dnd[k] = type(v) == "table" and CopyTable(v) or v
+                end
             end
         end
 
@@ -1830,6 +2012,7 @@ initFrame:SetScript("OnEvent", function(_, event)
         end
 
         C_Timer.After(1, function() addon:ScanAllButtons() end)
+        C_Timer.After(1, function() addon:RefreshBloodSpec() end)
         C_Timer.After(1, function() addon:InitDnDTracker() end)
         C_Timer.After(1, function() addon:SetupSoulReaperHook() end)
         C_Timer.After(2, function() addon:ShowPutrefyHoldWarning() end)
@@ -1923,6 +2106,7 @@ initFrame:SetScript("OnEvent", function(_, event)
 
     elseif event == "PLAYER_SPECIALIZATION_CHANGED" then
         addon:StopAll()
+        addon:RefreshBloodSpec()
         C_Timer.After(0.5, function() addon:ScanAllButtons() end)
         -- CDM rescan is handled by ButtonScanner's PLAYER_SPECIALIZATION_CHANGED handler
     end
