@@ -754,25 +754,32 @@ function addon:CreateConfigPanel(standalone)
             page.textExpired = CreateCheck(page.textSettingsCard, "Show expired alert", 200, -76,
                 function() return textSettings().expiredWarning end,
                 function(value) textSettings().expiredWarning = value end)
-            page.textValue = CreateEditControl(page.textSettingsCard, "Display Text:", 14, -112, 160,
+            page.textGhoulMissing = CreateCheck(page.textSettingsCard, "Show Lesser Ghoul missing", 14, -104,
+                function() return textSettings().ghoulMissingWarning end,
+                function(value)
+                    textSettings().ghoulMissingWarning = value
+                    if addon.RefreshCDMTrackedItems then addon:RefreshCDMTrackedItems() end
+                end)
+            page.textGhoulMissing.Text:SetFontObject("GameFontNormalSmall")
+            page.textValue = CreateEditControl(page.textSettingsCard, "Display Text:", 14, -140, 160,
                 function() return textSettings().text end,
                 function(value)
                     textSettings().text = value
                     addon:RefreshTextAlert(key == "festering" and "festeringScythe" or (key == "deathcoil" and "deathCoil" or "epidemic"))
                     page.RefreshTextPreview()
                 end)
-            page.textColor = CreateColorControl(page.textSettingsCard, 14, -150, "Text Color:",
+            page.textColor = CreateColorControl(page.textSettingsCard, 14, -178, "Text Color:",
                 function() return textSettings().color end,
                 function()
                     addon:RefreshTextAlert(key == "festering" and "festeringScythe" or (key == "deathcoil" and "deathCoil" or "epidemic"))
                     page.RefreshTextPreview()
                 end)
-            CreatePresetRow(page.textSettingsCard, 14, -181, textSettings, function()
+            CreatePresetRow(page.textSettingsCard, 14, -209, textSettings, function()
                 page.textColor.refresh()
                 addon:RefreshTextAlert("festeringScythe")
                 page.RefreshTextPreview()
             end)
-            page.textTiming = CreateSlider(page.textSettingsCard, "Alert when X sec remaining", 14, -220, 190, 1, 24, 1,
+            page.textTiming = CreateSlider(page.textSettingsCard, "Alert when X sec remaining", 14, -248, 190, 1, 24, 1,
                 function() return textSettings().secondsLeft or 5 end,
                 function(value) textSettings().secondsLeft = value end)
             page.textPreview = CreateText(page.textPreviewCard, "", 0, 0, "GameFontNormalLarge", 250)
@@ -798,23 +805,23 @@ function addon:CreateConfigPanel(standalone)
                 page.textPreview:Show()
                 page.textPreviewTimer:Show()
             end
-            page.textLock = CreateCheck(page.textSettingsCard, "Lock position", 14, -270,
+            page.textLock = CreateCheck(page.textSettingsCard, "Lock position", 200, -104,
                 function() return textSettings().locked end,
                 function(value) textSettings().locked = value end)
-            page.textSize = CreateSlider(page.textSettingsCard, "Font Size", 14, -308, 190, 12, 48, 1,
+            page.textSize = CreateSlider(page.textSettingsCard, "Font Size", 14, -298, 190, 12, 48, 1,
                 function() return textSettings().fontSize or 28 end,
                 function(value)
                     textSettings().fontSize = value
                     addon:RefreshTextAlert(key == "festering" and "festeringScythe" or (key == "deathcoil" and "deathCoil" or "epidemic"))
                     page.RefreshTextPreview()
                 end)
-            local fontLabel = CreateText(page.textSettingsCard, "Font:", 14, -364, "GameFontNormal")
+            local fontLabel = CreateText(page.textSettingsCard, "Font:", 14, -354, "GameFontNormal")
             page.textFont = CreateDropdown(page.textSettingsCard, 0, 0, 150,
                 function() return TEXT_FONTS end,
                 function() return textSettings().font or "Fonts\\FRIZQT__.TTF" end,
                 function(value) textSettings().font = value; addon:RefreshTextAlert(key == "festering" and "festeringScythe" or (key == "deathcoil" and "deathCoil" or "epidemic")); page.RefreshTextPreview() end)
             page.textFont:ClearAllPoints(); page.textFont:SetPoint("LEFT", fontLabel, "RIGHT", -8, -2)
-            local outlineLabel = CreateText(page.textSettingsCard, "Outline Style:", 14, -400, "GameFontNormal")
+            local outlineLabel = CreateText(page.textSettingsCard, "Outline Style:", 14, -392, "GameFontNormal")
             page.textOutline = CreateDropdown(page.textSettingsCard, 0, 0, 150,
                 function() return TEXT_OUTLINES end,
                 function() return textSettings().outline or "OUTLINE" end,
@@ -822,7 +829,7 @@ function addon:CreateConfigPanel(standalone)
             page.textOutline:ClearAllPoints(); page.textOutline:SetPoint("LEFT", outlineLabel, "RIGHT", -8, -2)
             page.textTest = CreateFrame("Button", nil, page.textSettingsCard, "UIPanelButtonTemplate")
             page.textTest:SetSize(110, 24)
-            page.textTest:SetPoint("TOPLEFT", page.textSettingsCard, "TOPLEFT", 14, -430)
+            page.textTest:SetPoint("TOPLEFT", page.textSettingsCard, "TOPLEFT", 14, -428)
             page.textTest:SetText("Test Text Alert")
             page.textTest:SetScript("OnClick", function()
                 addon:TestTextAlert(key == "festering" and "festeringScythe" or (key == "deathcoil" and "deathCoil" or "epidemic"))
@@ -933,7 +940,7 @@ function addon:CreateConfigPanel(standalone)
             if page.timing then page.timing.refresh(); page.combat.refresh(); page.grace.refresh(); page.ghoul.refresh() end
             if page.threshold then page.threshold.refresh() end
             if page.hasTextAlerts then
-                page.textSelector.refresh(); page.textEnable.refresh(); page.textExpired.refresh(); page.textValue.refresh(); page.textColor.refresh(); page.textTiming.refresh(); page.textLock.refresh(); page.textSize.refresh(); page.textFont.refresh(); page.textOutline.refresh()
+                page.textSelector.refresh(); page.textEnable.refresh(); page.textExpired.refresh(); page.textGhoulMissing.refresh(); page.textValue.refresh(); page.textColor.refresh(); page.textTiming.refresh(); page.textLock.refresh(); page.textSize.refresh(); page.textFont.refresh(); page.textOutline.refresh()
                 local ts = key == "festering" and DKAssistDB.spells.festeringScythe.textAlert or (key == "deathcoil" and DKAssistDB.spells.deathCoil.textAlert or DKAssistDB.spells.epidemic.textAlert)
                 page.RefreshTextPreview()
                 page.SetMode(GlowSettingsFor(key).textAlertMode or "glow")
@@ -994,7 +1001,7 @@ function addon:CreateConfigPanel(standalone)
             addon:RefreshTextAlert("suddenDoom")
             page.RefreshTextPreview()
         end)
-        page.textLock = CreateCheck(page.textCard, "Lock position", 14, -218,
+        page.textLock = CreateCheck(page.textCard, "Lock position", 200, -76,
             function() return textSettings().locked end, function(v) textSettings().locked = v end)
         page.textSize = CreateSlider(page.textCard, "Font Size", 14, -256, 190, 12, 48, 1,
             function() return textSettings().fontSize or 28 end,
@@ -1336,6 +1343,19 @@ function addon:CreateConfigPanel(standalone)
         if not button:GetText() or button:GetText() == "" then return end
         if not button._dkassistThemeReady then
             button._dkassistThemeReady = true
+            -- UIPanelButtonTemplate also contains decorative texture regions
+            -- that are not returned by GetNormal/Pushed/HighlightTexture().
+            -- Preserve every stock layer so modern themes can hide the whole
+            -- Classic button chrome instead of merely tinting it.
+            button._dkassistOriginalButtonTextures = {}
+            for _, region in ipairs({ button:GetRegions() }) do
+                if region:GetObjectType() == "Texture" then
+                    table.insert(button._dkassistOriginalButtonTextures, {
+                        texture = region,
+                        alpha = region:GetAlpha(),
+                    })
+                end
+            end
             button._dkassistOriginalNormal = button:GetNormalTexture()
             button._dkassistOriginalPushed = button:GetPushedTexture()
             button._dkassistOriginalHighlight = button:GetHighlightTexture()
@@ -1385,9 +1405,9 @@ function addon:CreateConfigPanel(standalone)
             palette = palette or STANDALONE_THEMES.frosted
             button._dkassistModernActive = true
             button._dkassistThemePalette = palette
-            if button._dkassistOriginalNormal then button._dkassistOriginalNormal:SetAlpha(0) end
-            if button._dkassistOriginalPushed then button._dkassistOriginalPushed:SetAlpha(0) end
-            if button._dkassistOriginalHighlight then button._dkassistOriginalHighlight:SetAlpha(0) end
+            for _, entry in ipairs(button._dkassistOriginalButtonTextures or {}) do
+                entry.texture:SetAlpha(0)
+            end
             button._dkassistModernButtonBackground:SetVertexColor(
                 palette.control[1], palette.control[2], palette.control[3], 1)
             button._dkassistModernButtonHighlight:SetVertexColor(
@@ -1400,9 +1420,9 @@ function addon:CreateConfigPanel(standalone)
             button._dkassistThemePalette = nil
             button._dkassistModernButtonBackground:Hide()
             button._dkassistModernButtonHighlight:Hide()
-            if button._dkassistOriginalNormal then button._dkassistOriginalNormal:SetAlpha(button._dkassistOriginalNormalAlpha) end
-            if button._dkassistOriginalPushed then button._dkassistOriginalPushed:SetAlpha(button._dkassistOriginalPushedAlpha) end
-            if button._dkassistOriginalHighlight then button._dkassistOriginalHighlight:SetAlpha(button._dkassistOriginalHighlightAlpha) end
+            for _, entry in ipairs(button._dkassistOriginalButtonTextures or {}) do
+                entry.texture:SetAlpha(entry.alpha)
+            end
             button:SetNormalFontObject("GameFontNormal")
             if button._dkassistOriginalFontColor and button:GetFontString() then
                 button:GetFontString():SetTextColor(unpack(button._dkassistOriginalFontColor))

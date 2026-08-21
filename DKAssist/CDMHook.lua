@@ -33,7 +33,10 @@ end
 
 local function LesserGhoulEnabled()
     local settings = DKAssistDB and DKAssistDB.spells and DKAssistDB.spells.festeringScythe
-    return settings and settings.enabled and settings.lesserGhoulGlow or false
+    local glowEnabled = settings and settings.enabled and settings.lesserGhoulGlow
+    local textEnabled = settings and settings.textAlert and settings.textAlert.enabled
+        and settings.textAlert.ghoulMissingWarning
+    return glowEnabled or textEnabled or false
 end
 
 local function RegisterItem(item)
@@ -172,4 +175,3 @@ loader:SetScript("OnEvent", function(_, event, loadedAddon)
     end)
     C_Timer.After(2, RegisterExistingItems)
 end)
-
