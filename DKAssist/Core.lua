@@ -1737,16 +1737,32 @@ end
 
 -- The buff icon is hidden exactly while the player is outside their own
 -- Death and Decay.  Check ten times per second and act only on a change.
+--
+-- Cleaving Strikes removes the buff and immediately grants it again for a few
+-- seconds when you leave your own patch, so the icon blinks off for a fraction
+-- of a second while the bonus is in fact still up.  Require the icon to stay
+-- hidden for a short grace period before glowing; the glow still clears the
+-- instant the buff comes back.
+local DND_BUFF_GLOW_DELAY = 0.5
 local dndBuffWatcher = CreateFrame("Frame")
 local dndBuffElapsed = 0
+local dndBuffMissingFor = 0
 dndBuffWatcher:SetScript("OnUpdate", function(_, elapsed)
     dndBuffElapsed = dndBuffElapsed + elapsed
     if dndBuffElapsed < 0.10 then return end
+    local sincePoll = dndBuffElapsed
     dndBuffElapsed = 0
 
     local settings = DKAssistDB and DKAssistDB.dnd
-    local active = settings and settings.buffGlow and isBloodSpec and dndBuffFrame
+    local missing = settings and settings.buffGlow and isBloodSpec and dndBuffFrame
         and InCombatLockdown() and not dndBuffFrame:IsShown() or false
+
+    if missing then
+        dndBuffMissingFor = dndBuffMissingFor + sincePoll
+    else
+        dndBuffMissingFor = 0
+    end
+    local active = missing and dndBuffMissingFor >= DND_BUFF_GLOW_DELAY
 
     if active and not dndBuffGlowActive then
         addon:ShowDnDBuffGlow()
