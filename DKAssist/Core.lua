@@ -227,6 +227,7 @@ local function DefaultTextAlert(text, color)
         enabled = false,
         text = text,
         expiredWarning = false,
+        ghoulMissingWarning = false,
         secondsLeft = 5,
         fontSize = 28,
         font = "Fonts\\FRIZQT__.TTF",
@@ -257,6 +258,8 @@ local textAlertFrames = {}
 local textAlertTimers = {}
 local festeringTextTicker = nil
 local festeringTextEndTime = nil
+local festeringTextNormalWanted = false
+local festeringTextGhoulMissing = false
 
 local function GetTextAlertSettings(key)
     if key == "suddenDoom" then return DKAssistDB and DKAssistDB.suddenDoomTextAlert end
@@ -320,6 +323,13 @@ function addon:RefreshTextAlert(key)
     frame.timerText:SetFont(font, math.max(14, fontSize - 4), outline)
     local c = settings.color or { r = 1, g = 0.82, b = 0.1 }
     frame.text:SetTextColor(c.r, c.g, c.b, 1)
+    if key == "festeringScythe" and festeringTextGhoulMissing then
+        -- The missing-ghoul reminder has priority over the normal Scythe
+        -- countdown, because rebuilding Lesser Ghoul stacks is the action the
+        -- player needs to take first.
+        frame.text:SetText("LESSER GHOUL MISSING")
+        frame.timerText:SetText("")
+    end
     local width = math.max(280, frame.text:GetStringWidth() + 32, frame.timerText:GetStringWidth() + 32)
     frame:SetSize(width, key == "festeringScythe" and (fontSize * 2 + 18) or (fontSize + 20))
     frame.timerText:SetShown(key == "festeringScythe" and frame.timerText:GetText() ~= "")
@@ -371,15 +381,35 @@ function addon:SetTextAlertVisible(key, visible)
     local settings = GetTextAlertSettings(key)
     if not settings then return end
     local frame = EnsureTextAlertFrame(key)
-    frame._dkAssistWanted = visible and true or false
     if key == "festeringScythe" then
-        if visible and festeringTextEndTime then
+        festeringTextNormalWanted = visible and true or false
+        frame._dkAssistWanted = festeringTextNormalWanted or festeringTextGhoulMissing
+    else
+        frame._dkAssistWanted = visible and true or false
+    end
+    if key == "festeringScythe" then
+        if festeringTextNormalWanted and not festeringTextGhoulMissing and festeringTextEndTime then
             StartFesteringTextTicker()
-        elseif not visible then
+        else
             StopFesteringTextTicker()
         end
     end
     addon:RefreshTextAlert(key)
+end
+
+local function SetFesteringGhoulTextAlert(missing)
+    missing = missing and true or false
+    if festeringTextGhoulMissing == missing then return end
+    festeringTextGhoulMissing = missing
+
+    local frame = EnsureTextAlertFrame("festeringScythe")
+    frame._dkAssistWanted = festeringTextNormalWanted or festeringTextGhoulMissing
+    if festeringTextGhoulMissing then
+        StopFesteringTextTicker()
+    elseif festeringTextNormalWanted and festeringTextEndTime then
+        StartFesteringTextTicker()
+    end
+    addon:RefreshTextAlert("festeringScythe")
 end
 
 function addon:TestTextAlert(key)
@@ -436,7 +466,17 @@ local function CreateOverlay(targetFrame, spellKey)
     -- top of the map, bags and other Blizzard panels.
     local overlay = CreateFrame("Frame", nil, targetFrame)
     overlay:SetFrameStrata(targetFrame:GetFrameStrata())
-    overlay:SetAllPoints(targetFrame)
+    -- Cooldown-manager skins (notably EllesmereUI) can use a large container
+    -- frame around a much smaller spell icon.  Anchoring the glow to that
+    -- container stretches Button/Autocast glows into a giant rectangle.
+    -- Prefer the actual icon region whenever the target exposes one.
+    local icon = targetFrame.Icon or targetFrame.icon
+    if icon and icon.GetObjectType and icon:GetObjectType() == "Texture" then
+        overlay:SetPoint("TOPLEFT", icon, "TOPLEFT", 0, 0)
+        overlay:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT", 0, 0)
+    else
+        overlay:SetAllPoints(targetFrame)
+    end
     overlay:SetFrameLevel(targetFrame:GetFrameLevel() + 10)
     overlay._targetFrame = targetFrame
     overlay._spellKey    = spellKey
@@ -957,6 +997,7 @@ local function StopFesteringGlow()
         textAlertTimers.festeringScythe = nil
     end
     addon:SetTextAlertVisible("festeringScythe", false)
+    SetFesteringGhoulTextAlert(false)
 end
 
 local function ShowFesteringGlow()
@@ -1080,6 +1121,7 @@ local function OnFesteringCombatEnd()
     SetFesteringReason("ghoul", false)
     SetFesteringReason("expiry", false)
     addon:SetTextAlertVisible("festeringScythe", false)
+    SetFesteringGhoulTextAlert(false)
 end
 
 local function OnFesteringCombatStart()
@@ -1121,13 +1163,19 @@ ghoulWatcher:SetScript("OnUpdate", function(_, elapsed)
     ghoulElapsed = 0
 
     local settings = DKAssistDB and DKAssistDB.spells and DKAssistDB.spells.festeringScythe
-    if not settings or not settings.enabled or not settings.lesserGhoulGlow
+    local glowEnabled = settings and settings.enabled and settings.lesserGhoulGlow
+    local textEnabled = settings and settings.textAlert and settings.textAlert.enabled
+        and settings.textAlert.ghoulMissingWarning
+    if not settings or (not glowEnabled and not textEnabled)
         or not lesserGhoulFrame or not InCombatLockdown() then
         SetFesteringReason("ghoul", false)
+        SetFesteringGhoulTextAlert(false)
         return
     end
 
-    SetFesteringReason("ghoul", not lesserGhoulFrame:IsShown())
+    local missing = not lesserGhoulFrame:IsShown()
+    SetFesteringReason("ghoul", glowEnabled and missing)
+    SetFesteringGhoulTextAlert(textEnabled and missing)
 end)
 
 function addon:RefreshFesteringGlows()

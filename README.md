@@ -7,7 +7,7 @@ This is a community-maintained fork of **DK Assist** by ZachoWOW. It retains the
 ## Features
 
 - **Festering Scythe warning** — configurable action-bar or Cooldown Manager glow when Festering Strike changes to Festering Scythe; includes expiry timing, combat-start reminder, and optional Lesser Ghoul reminder.
-- **Festering Scythe WA-Style alert** — a separate movable text alert with its own timing, font, outline, size, colour presets, live preview, green/yellow/red countdown, and an optional EXPIRED state that remains until combat ends or the buff refreshes.
+- **Festering Scythe WA-Style alert** — a separate movable text alert with its own timing, font, outline, size, colour presets, live preview, green/yellow/red countdown, an optional EXPIRED state, and an optional Lesser Ghoul missing message.
 - **Sudden Doom glows** — separate, configurable alerts for Death Coil and Epidemic when Sudden Doom procs. Necrotic Coil and Graveyard are also supported where applicable.
 - **Sudden Doom WA-Style alert** — a separate movable and fully configurable text alert for Sudden Doom procs.
 - **Putrefy hold warning** — configurable red cross or glow that tells you to hold Putrefy while Dark Transformation is unavailable. The warning hides during Dark Transformation and its Death Coil / Epidemic duration extensions.
